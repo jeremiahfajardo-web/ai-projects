@@ -177,7 +177,7 @@ All variables live in `ai-infrastructure-v1/.env`. See [.env.example](../ai-infr
 |---|---|
 | `POSTGRES_USER` | Superuser name (default: `postgres`) |
 | `POSTGRES_PASSWORD` | Superuser password |
-| `POSTGRES_DB` | Database name (default: `aidb`) |
+| `POSTGRES_DB` | Database name (default: `ai-db`) |
 | `RAG_DB_PASSWORD` | Password for `rag_user` (least-privilege) |
 | `MCP_DB_PASSWORD` | Password for `mcp_user` (least-privilege) |
 | `POSTGRES_HOST_PORT` | Host-side port binding (default: `5432`) |

@@ -70,7 +70,7 @@ Open `.env` and fill in the required fields:
 # ── Required — passwords (use anything in dev) ──────────────────
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=changeme_postgres
-POSTGRES_DB=aidb
+POSTGRES_DB=ai-db
 RAG_DB_PASSWORD=changeme_rag
 MCP_DB_PASSWORD=changeme_mcp
 
