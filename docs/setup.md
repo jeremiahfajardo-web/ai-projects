@@ -218,8 +218,33 @@ LLM will answer from training knowledge only.
 ### Queries are very slow
 
 `llama3:8b` runs at 10–20 tokens/second on a GPU with 8 GB VRAM. On CPU only
-it drops to 1–3 tokens/second. Options:
-- Ensure Docker Desktop has access to your GPU (Settings → Resources → GPU)
+it drops to 1–3 tokens/second.
+
+Ollama runs on the **Windows host** (not inside Docker) and accesses the GPU
+directly via Windows drivers — Docker Desktop's GPU settings have no effect here.
+
+Check whether Ollama is actually using your GPU:
+
+```bash
+ollama ps        # shows active model and which device it's loaded on (GPU vs CPU)
+```
+
+If it shows CPU only, verify the correct drivers are installed on Windows:
+- **NVIDIA**: install [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) — Ollama detects it automatically on next launch
+- **AMD**: install [ROCm for Windows](https://rocm.docs.amd.com/en/latest/deploy/windows/index.html)
+
+To squeeze more speed out of your current GPU, set these Windows environment
+variables (restart Ollama from the system tray after each change):
+
+```powershell
+# Enable Flash Attention — free speedup on supported NVIDIA GPUs
+[System.Environment]::SetEnvironmentVariable("OLLAMA_FLASH_ATTENTION", "1", "User")
+
+# Force all model layers onto the GPU (default is already auto/max, but explicit is clearer)
+[System.Environment]::SetEnvironmentVariable("OLLAMA_NUM_GPU", "999", "User")
+```
+
+Other options:
 - Switch to a smaller model: `ollama pull phi3:mini`, update `OLLAMA_LLM_MODEL=phi3:mini`
 - Increase `LLM_TIMEOUT` if queries time out before completion (default: 300s)
 
