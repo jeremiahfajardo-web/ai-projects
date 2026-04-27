@@ -46,7 +46,7 @@ Everything runs on your machine via Docker Compose and Ollama.
 │  │              │  ai-database-v1    │                     │  │
 │  │              │  PostgreSQL 16     │                     │  │
 │  │              │  + pgvector        │                     │  │
-│  │              │  D:/Database (vol) │                     │  │
+│  │              │  E:/Database (vol) │                     │  │
 │  │              └────────────────────┘                     │  │
 │  └────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
@@ -172,7 +172,8 @@ docker-compose logs -f ai-rag-llm-client-v1
 
 ## Clean restart (wipe data)
 
-The PostgreSQL data lives in a bind-mount on your host (`D:/Database`).
+The PostgreSQL data lives in a bind-mount on your host at the path set by
+`DB_DATA_PATH` in `ai-infrastructure-v1/.env` (currently `E:/Database`).
 Docker's `down -v` does **not** clear bind-mounts — you must delete the
 directory contents manually.
 
@@ -180,8 +181,8 @@ directory contents manually.
 # Stop all containers
 docker-compose down
 
-# Wipe the database volume (bash / Git Bash)
-rm -rf /d/Database/*
+# Wipe the database volume (bash / Git Bash — adjust path to match DB_DATA_PATH)
+rm -rf /e/Database/*
 
 # Rebuild images to pick up any init-script changes, then start
 docker-compose build --no-cache ai-database-v1

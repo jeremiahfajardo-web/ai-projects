@@ -172,7 +172,7 @@ Open http://localhost:8001/admin and enter your `MCP_API_KEY`.
 ## 7. Stopping and restarting
 
 ```bash
-docker-compose down          # stop containers (data persists in D:/Database)
+docker-compose down          # stop containers (data persists in E:/Database)
 docker-compose down -v       # stop + delete volumes (WIPES DATABASE)
 docker-compose up -d         # restart all services
 docker-compose restart ai-rag-llm-client-v1   # restart one service

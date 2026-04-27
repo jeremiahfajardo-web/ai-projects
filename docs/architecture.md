@@ -258,7 +258,7 @@ tools are available from the first request.
 
 ### Volume
 
-The database data directory is mounted at `D:/Database` on the host. This
+The database data directory is mounted at the path in `DB_DATA_PATH` (currently `E:/Database`) on the host. This
 persists data across `docker-compose down` / `up` cycles. Change the path in
 `docker-compose.yml` to suit your drive layout.
 
