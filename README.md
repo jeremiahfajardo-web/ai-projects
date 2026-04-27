@@ -37,7 +37,7 @@ Everything runs on your machine via Docker Compose and Ollama.
 │  │  ┌──────────────────────┐   ┌───────────────────────┐  │  │
 │  │  │  ai-rag-llm-client   │   │   ai-mcp-server-v1    │  │  │
 │  │  │      Flask :8000     │──▶│     FastAPI :8001     │  │  │
-│  │  │      Vue 3 PWA       │   │   11 tools over HTTP  │  │  │
+│  │  │      Vue 3 UI        │   │   11 tools over HTTP  │  │  │
 │  │  └──────────┬───────────┘   └───────────┬───────────┘  │  │
 │  │             │                            │              │  │
 │  │             └───────────┬────────────────┘              │  │
@@ -92,7 +92,7 @@ POST /tools/web_crawl_and_store
 | Vector DB | PostgreSQL 16 + pgvector | ivfflat indexes, lists=100 |
 | Full-text search | PostgreSQL tsvector + GIN | Hybrid with RRF merge |
 | RAG client backend | Python 3.12 / Flask | flask[async], SQLAlchemy, httpx |
-| RAG client frontend | Vue 3 + Pinia + Vite | PWA, dark mode, SSE streaming |
+| RAG client frontend | Vue 3 CDN | Responsive, dark mode, SSE streaming |
 | MCP tool server | Python 3.12 / FastAPI | asyncpg, 11 tools, 4-layer auth |
 | Orchestration | Docker Compose | Bridge network, health checks |
 | Web search | Brave Search API | Optional for MCP web tools |
@@ -134,6 +134,9 @@ POSTGRES_PASSWORD=changeme
 RAG_DB_PASSWORD=changeme_rag
 MCP_DB_PASSWORD=changeme_mcp
 
+# Flask secret key — generate with: python -c "import secrets; print(secrets.token_hex(32))"
+SECRET_KEY=your_generated_key
+
 # API keys (required for MCP web tools)
 MCP_API_KEY=any_alphanumeric_string
 BRAVE_SEARCH_API_KEY=your_brave_key
@@ -164,6 +167,32 @@ docker-compose logs -f ai-rag-llm-client-v1
 |---|---|
 | RAG client (main UI) | [http://localhost:8000](http://localhost:8000) |
 | MCP admin dashboard  | [http://localhost:8001/admin](http://localhost:8001/admin) |
+
+---
+
+## Clean restart (wipe data)
+
+The PostgreSQL data lives in a bind-mount on your host (`D:/Database`).
+Docker's `down -v` does **not** clear bind-mounts — you must delete the
+directory contents manually.
+
+```bash
+# Stop all containers
+docker-compose down
+
+# Wipe the database volume (bash / Git Bash)
+rm -rf /d/Database/*
+
+# Rebuild images to pick up any init-script changes, then start
+docker-compose build --no-cache ai-database-v1
+docker-compose up -d
+```
+
+Confirm the init scripts ran successfully:
+```bash
+docker-compose logs ai-database-v1 | grep 'users rag_user'
+# expected: DB users rag_user and mcp_user created/updated.
+```
 
 ---
 
