@@ -83,7 +83,7 @@ Managed by `ai-database-v1`. All vector columns use `VECTOR(768)` matching
 | User | Tables | Permissions |
 |---|---|---|
 | `rag_user` | `document_chunks`, `documents`, `sessions`, `turns`, `memory_embeddings`, `user_facts`, `error_log` | SELECT, INSERT, UPDATE |
-| `mcp_user` | `memory_embeddings`, `mcp_tool_calls`, `trusted_sources`, `web_cache`, `error_log` | SELECT, INSERT, UPDATE, DELETE (on memory + web_cache) |
+| `mcp_user` | `document_chunks`, `documents` (read) + `memory_embeddings`, `mcp_tool_calls`, `trusted_sources`, `web_cache`, `error_log` | SELECT on documents/chunks; SELECT, INSERT, UPDATE, DELETE on memory + web_cache |
 
 Users are created by `create_users.sh` (a shell script, not SQL) because
 PostgreSQL init scripts run as the superuser and cannot read Docker env vars
@@ -93,7 +93,7 @@ via `current_setting()`.
 
 ## 3. MCP server (ai-mcp-server-v1)
 
-FastAPI application exposing 11 tools over authenticated HTTP.
+FastAPI application exposing 12 tools over authenticated HTTP.
 
 ### Auth model
 
@@ -101,7 +101,7 @@ Every tool request must carry `X-MCP-API-Key`. The key maps to a permission
 tier; each tool declares its minimum required tier:
 
 ```
-read   → vector_db_query, get_trusted_sources, web_search,
+read   → document_search, vector_db_query, get_trusted_sources, web_search,
           web_fetch_cached, memory_read, memory_list
 write  → web_scrape, web_crawl_and_store, memory_write,
           memory_summarize_session
@@ -127,12 +127,13 @@ async def run_tool(name, coro, pool, session_id, user_id):
     return result
 ```
 
-Per-tool timeout (default 10s) prevents any single slow tool from blocking the
-server. Status is logged to `mcp_tool_calls` for the admin dashboard.
+Per-tool timeout (default 120s — raised from 10s to accommodate web_crawl_and_store)
+prevents any single slow tool from blocking the server. Status is logged to
+`mcp_tool_calls` for the admin dashboard.
 
 ### Hybrid search (RRF)
 
-`vector_db_query` and `memory_read` use Reciprocal Rank Fusion to merge
+`document_search`, `vector_db_query`, and `memory_read` use Reciprocal Rank Fusion to merge
 pgvector cosine rankings and tsvector keyword rankings:
 
 ```
@@ -170,12 +171,15 @@ POST /api/query/stream
   ├─ 1. memory_read   → MCP /tools/memory_read (skipped if MCP unconfigured)
   │      Returns top-5 memories semantically related to the query
   │
-  ├─ 2. retrieve      → pgvector + BM25 hybrid search on document_chunks
-  │      Embedding via Ollama nomic-embed-text (768-dim)
+  ├─ 2. retrieve      → MCP /tools/document_search (when MCP configured)
+  │      Hybrid pgvector + BM25 search on document_chunks, logged in MCP admin
+  │      Fallback: direct rag.retrieve() when MCP unavailable
   │      Filtered by RAG_SIMILARITY_THRESHOLD (absolute) +
   │                    RAG_RELATIVE_THRESHOLD (relative to top chunk)
   │
-  ├─ 3. generate      → Ollama /api/generate (stream=true)
+  ├─ 3. generate      → Ollama /api/chat with tool definitions (up to 5 turns)
+  │      LLM may call: document_search, web_search, web_crawl_and_store, web_fetch_cached
+  │      Each tool call dispatched via MCPClient → result appended to message history
   │      System prompt = memories + retrieved chunks
   │      Tokens streamed to browser via SSE
   │
