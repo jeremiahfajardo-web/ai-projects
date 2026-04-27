@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:brave.com)"
+      "WebFetch(domain:brave.com)",
+      "Bash(docker cp *)",
+      "Bash(docker-compose -f c:/projects/ai-infrastructure-v1/docker-compose.yml build --no-cache ai-mcp-server-v1)",
+      "Bash(docker-compose -f c:/projects/ai-infrastructure-v1/docker-compose.yml up -d --force-recreate ai-mcp-server-v1)"
     ]
   }
 }
