@@ -170,7 +170,8 @@ POST /api/query/stream
   │
   ├─ 1. memory_read   → MCP /tools/memory_read (skipped if MCP unconfigured)
   │      Returns top-5 memories semantically related to the query;
-  │      filtered client-side by RAG_SIMILARITY_THRESHOLD (default 0.20)
+  │      filtered client-side by per-request similarity_threshold
+  │      (falls back to RAG_SIMILARITY_THRESHOLD, default 0.20)
   │
   ├─ 2. retrieve      → MCP /tools/document_search (when MCP configured)
   │      Hybrid pgvector + BM25 search on document_chunks, logged in MCP admin
@@ -225,9 +226,11 @@ via the UI dropdowns (0.05–0.95, step 0.05).
 **Memories (single-stage, applied client-side after memory_read):**
 
 `memory_read` returns the top-k rows by cosine proximity with no server-side
-score floor. The RAG client applies `RAG_SIMILARITY_THRESHOLD` as an absolute
-floor immediately after receiving results, so low-relevance memories from
-unrelated prior conversations are discarded before they reach the system prompt.
+score floor. The RAG client applies an absolute floor immediately after
+receiving results, so low-relevance memories from unrelated prior conversations
+are discarded before they reach the system prompt. The threshold used is the
+per-request `similarity_threshold` when provided, falling back to
+`RAG_SIMILARITY_THRESHOLD` from server config (default 0.20).
 
 ### Document ingestion
 
