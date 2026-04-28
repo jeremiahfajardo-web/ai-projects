@@ -169,7 +169,8 @@ Flask + Vue 3 application with a four-step agentic query pipeline.
 POST /api/query/stream
   │
   ├─ 1. memory_read   → MCP /tools/memory_read (skipped if MCP unconfigured)
-  │      Returns top-5 memories semantically related to the query
+  │      Returns top-5 memories semantically related to the query;
+  │      filtered client-side by RAG_SIMILARITY_THRESHOLD (default 0.20)
   │
   ├─ 2. retrieve      → MCP /tools/document_search (when MCP configured)
   │      Hybrid pgvector + BM25 search on document_chunks, logged in MCP admin
@@ -205,9 +206,9 @@ sync Flask route handler
         yields "data: {...}\n\n" until sentinel None is received
 ```
 
-### Similarity filtering (two-stage)
+### Similarity filtering
 
-After pgvector retrieval, two filters are applied in sequence:
+**Document chunks (two-stage, applied inside MCP document_search):**
 
 1. **Absolute floor** (`RAG_SIMILARITY_THRESHOLD`, default 0.20): discard any
    chunk whose cosine similarity is below this value regardless of context.
@@ -220,6 +221,13 @@ After pgvector retrieval, two filters are applied in sequence:
 
 Both thresholds are configurable per-request via the query API and per-session
 via the UI dropdowns (0.05–0.95, step 0.05).
+
+**Memories (single-stage, applied client-side after memory_read):**
+
+`memory_read` returns the top-k rows by cosine proximity with no server-side
+score floor. The RAG client applies `RAG_SIMILARITY_THRESHOLD` as an absolute
+floor immediately after receiving results, so low-relevance memories from
+unrelated prior conversations are discarded before they reach the system prompt.
 
 ### Document ingestion
 
