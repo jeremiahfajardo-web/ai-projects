@@ -1,6 +1,8 @@
 # Environment — never commit secrets
 .env
+.env.bak
 *.env
+*.env.bak
 
 # OS
 .DS_Store
