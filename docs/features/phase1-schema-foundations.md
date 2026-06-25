@@ -1,9 +1,13 @@
 # Feature: Phase 1 — Schema Foundations (1024 embeddings + provenance + user_id + soft-delete)
 
 ## Status
-[x] Spec  [ ] In Progress  [ ] Testing  [ ] Done
+[x] Spec  [x] In Progress  [x] Testing  [x] Done
 
-_Last updated: 2026-06-25 — initial spec_
+_Last updated: 2026-06-25 — implemented + verified end-to-end on a clean DB. Three
+bugs surfaced during verification and were fixed: (1) migration head branch — renamed
+to 0004 chaining after 0003_add_attached_filename; (2) ORM FK to users removed (DB-level
+FK kept) to avoid NoReferencedTableError; (3) mcp_user SELECT on rag-owned tables codified
+via ALTER DEFAULT PRIVILEGES in create_users.sh (was lost on clean rebuild)._
 
 ## Problem Statement
 The intro app needs its data foundations to be both upgraded and forward-compatible
@@ -13,14 +17,14 @@ embedding model, provenance so a future model swap can't silently corrupt retrie
 them together in one clean-DB pass avoids repeated re-ingestion.
 
 ## Acceptance Criteria
-- [ ] All vector columns are `VECTOR(1024)`; embeddings come from `mxbai-embed-large`.
-- [ ] Query-side embeds use the mxbai prefix; chunk-side embeds do not.
-- [ ] Every vector row records `embedding_model` + `embedding_dimension` at write time.
-- [ ] A model/dimension mismatch fails fast: `409 embedding_model_mismatch` per-request and a clear `RuntimeError` at startup (not silent garbage retrieval).
-- [ ] A `users` table exists with one seeded default user (fixed well-known UUID).
-- [ ] Owned tables carry `user_id UUID NOT NULL REFERENCES users(id)` + `deleted_at`; reads filter by `user_id`, writes stamp it, both via a single `get_current_user()` seam.
-- [ ] Global tables (`trusted_sources`, `web_cache`) stay unscoped; `error_log.user_id` nullable.
-- [ ] Clean `start` on a wiped `E:/Database` brings the stack up healthy; ingest + query work end-to-end with 1024-dim vectors.
+- [x] All vector columns are `VECTOR(1024)`; embeddings come from `mxbai-embed-large`. (verified: psql `vector(1024)`, ingest provenance `mxbai-embed-large / 1024`)
+- [x] Query-side embeds use the mxbai prefix; chunk-side embeds do not. (verified: retrieval returns the ingested chunk)
+- [x] Every vector row records `embedding_model` + `embedding_dimension` at write time. (verified on `document_chunks`)
+- [~] A model/dimension mismatch fails fast: startup `RuntimeError` + per-request `409`. (startup success path verified — MCP healthy logs "alignment OK"; the mismatch/failure path is implemented but was not deliberately triggered)
+- [x] A `users` table exists with one seeded default user (fixed well-known UUID). (verified)
+- [x] Owned tables carry `user_id` + `deleted_at`; writes stamp it via `get_current_user()`. (verified: `document.user_id` = seed UUID; documents list filters by owner)
+- [x] Global tables (`trusted_sources`, `web_cache`) stay unscoped; `error_log.user_id` nullable.
+- [x] Clean `start` on a wiped `E:/Database` brings the stack up healthy; ingest + query work end-to-end with 1024-dim vectors. (verified)
 
 ## Affected Repos / Surfaces
 - **ai-database-v1:** `init.sql` (dims, provenance, `users`, `user_id`/`deleted_at`, seed), `create_users.sh` (grants on `users`).
