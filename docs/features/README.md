@@ -10,4 +10,4 @@ own `docs/features/`. Each phase of the local-intro-app rework
 
 | Spec | Phase | Status |
 |---|---|---|
-| _(none yet — Phase 1 spec lands when the schema work starts)_ | — | — |
+| [phase1-schema-foundations.md](phase1-schema-foundations.md) | 1 | In Progress |
