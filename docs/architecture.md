@@ -1,5 +1,43 @@
 # Architecture deep-dive
 
+**Status:** Pre-rework baseline — describes the **current running** stack
+(Flask RAG client, host Ollama, `VECTOR(768)`/nomic-embed-text). Sections are revised
+**per phase as code ships**, not ahead of it. For the target design and rationale see
+*Active Direction* below.
+
+## Conventions for this document
+
+This is the authoritative record of architectural decisions for the workspace. Record
+**why**, not just **what** — every non-trivial decision notes the reasoning and what was
+explicitly rejected. When a phase ships, update the affected section in the same change
+and move its line under the dated status note. Keep the doc honest: it should match the
+code that exists, with the target captured under *Active Direction* until built.
+
+## Active Direction (2026-06-25) — local intro-app rework
+
+The stack is being reworked into a downloadable, truly-local intro app with
+forward-compatible seams (**defer the features, build the seams**). Target deltas vs. the
+baseline below:
+
+- **Embeddings:** `mxbai-embed-large` → `VECTOR(1024)` + embedding provenance/alignment
+  check. *Why:* 1024 is the standard upgrade from 768 (no model emits "1064"); provenance
+  prevents silent garbage retrieval after a model swap. *Rejected:* padding a 1024 model
+  to a non-standard width.
+- **RAG client Flask → FastAPI.** *Why:* removes the SSE Queue+Thread hack and aligns with
+  the already-async MCP server. *Rejected:* keeping Flask + a second framework.
+- **Containerised Ollama + GPU auto-detect** (`llama3.1:8b` GPU / `llama3.2:3b` CPU).
+  *Why:* "download and try" can't depend on a host install; CPU `:8b` ruins first-run UX.
+- **Dedicated `ai-n8n-v1`** + **Plugin SDK** (auto-discovered MCP tools). *Why:* isolate
+  client workflows from the dev's existing n8n; make tool extension drop-in.
+- **Schema-only `user_id` + soft-delete behind `get_current_user()`**, and a `providers/`
+  seam for LLM/embeddings. *Why:* the destructive-to-retrofit foundations (ownership,
+  normalization, provenance) are done now so real auth / cloud providers bolt on later
+  with no data migration.
+
+Full plan + sequencing: `~/.claude/plans/optimized-mapping-harbor.md`.
+
+---
+
 ## 1. Repository layout
 
 ```
