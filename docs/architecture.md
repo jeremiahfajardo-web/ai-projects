@@ -298,16 +298,25 @@ network.
 ### Startup order
 
 ```
+ollama            → healthcheck: `ollama list` (every 10s)
+                         │
+ollama-init       → depends_on: ollama (healthy); pulls embed + LLM models, exits 0
+                         │
 ai-database-v1    → healthcheck: pg_isready (every 10s)
                          │
-ai-mcp-server-v1  → depends_on: database (healthy)
+ai-mcp-server-v1  → depends_on: database (healthy) + ollama-init (completed)
                     healthcheck: curl /health (every 15s)
                          │
 ai-rag-llm-client → depends_on: database (healthy) + mcp-server (healthy)
+                                 + ollama-init (completed)
+
+ai-n8n-v1         → independent; own volume + encryption key (isolated)
 ```
 
 The RAG client waits for MCP to be healthy before starting, ensuring memory
-tools are available from the first request.
+tools are available from the first request. Both app services additionally wait
+on `ollama-init` **completing successfully** (Phase 2) so the startup embedding
+alignment check never probes a model that has not been pulled yet.
 
 ### Volume
 
@@ -315,11 +324,17 @@ The database data directory is mounted at the path in `DB_DATA_PATH` (currently 
 persists data across `docker-compose down` / `up` cycles. Change the path in
 `docker-compose.yml` to suit your drive layout.
 
-### Host networking
+### Ollama networking
 
-Ollama runs natively on Windows (not in Docker) and is accessed from containers
-via `host.docker.internal:11434`. Docker Desktop resolves this hostname
-automatically on Windows and Mac.
+**Phase 2 (shipped):** Ollama runs as the containerized `ollama` service and is
+reached over the `ai-project` network at `http://ollama:11434` — no host install
+required. The `./start.ps1` / `start.sh` launchers probe `nvidia-smi` and select
+`llama3.1:8b` + the `docker-compose.gpu.yml` override on a GPU host, or
+`llama3.2:3b` on the base compose for CPU. A one-shot `ollama-init` pulls the embed
++ LLM models into the `ai-ollama-v1-data` volume on first boot.
+
+*(Pre-Phase-2 baseline, for reference: Ollama ran natively on the host and was
+reached via `host.docker.internal:11434`.)*
 
 ---
 
