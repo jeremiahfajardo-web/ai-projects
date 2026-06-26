@@ -148,9 +148,22 @@ delete → memory_delete
 
 Permission tiers are cumulative: a `write` key can also call `read` tools.
 
+### Tool registration — Plugin SDK (Phase 4, shipped)
+
+Tools are **auto-discovered**, not hand-wired in `main.py`. Each `tools/<name>.py` declares
+a module-level `TOOL_SPECS: list[ToolSpec]` (name, Pydantic `request_model`, auth `Tier`, and
+an `async (*, pool, ctx, params)` handler). At import, `sdk.register_tools(app)` scans the
+`tools/` package, mounts one `POST /tools/<name>` per spec (synthesising the endpoint
+signature so FastAPI validates the per-spec body and injects the ctx + tier dependencies),
+and adds a `GET /tools` discovery endpoint that the admin Tool Tester reads. A malformed
+plugin is logged and skipped; a duplicate tool name fails fast at startup. *Why:* tool
+extension becomes a drop-in file, not a `main.py` refactor — the "build the seam" rule. The
+existing tools were migrated onto this convention via thin-wrapper handlers, so their core
+functions and contracts are unchanged. Contract + examples: `ai-mcp-server-v1/docs/extending.md`.
+
 ### Tool execution
 
-Every tool is wrapped by `run_tool()`:
+Every tool is wrapped by `run_tool()` (now in `sdk.py`):
 
 ```python
 async def run_tool(name, coro, pool, session_id, user_id):
