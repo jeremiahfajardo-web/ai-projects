@@ -1,9 +1,14 @@
 # Feature: Phase 4 — Workflow extensibility: Plugin SDK + n8n
 
 ## Status
-[x] Spec  [ ] In Progress  [ ] Testing  [ ] Done
+[x] Spec  [x] In Progress  [ ] Testing  [ ] Done
 
-_Last updated: 2026-06-26 — spec authored ahead of implementation (Phases 0–3 shipped + merged to main)._
+_Last updated: 2026-06-26 — implemented. Plugin SDK + 12-tool migration + example/demo
+plugins + dynamic admin Tool Tester shipped; MCP pytest suite green (61 tests). RAG
+migration 0005, equipment-manual fixtures + ingest script, and the two n8n workflow exports
+committed. **Remaining for "Testing":** live end-to-end run — `./start.ps1`, apply 0005,
+run `demo/ingest_demo_docs.py`, import both n8n workflows and execute against the live API
+(needs the Docker stack up; not run in this coding session)._
 
 ## Problem Statement
 The stack is now a working, fully-local intro app — but extending it still means
@@ -26,30 +31,33 @@ Hard guardrail (locked with the user): **no runtime code-exec.** Plugins are Pyt
 loaded at startup, never arbitrary code `eval`'d from a request.
 
 ## Acceptance Criteria
-- [ ] Dropping a new `tools/<name>.py` (declaring a tool spec + handler + tier) into
+- [x] Dropping a new `tools/<name>.py` (declaring a tool spec + handler + tier) into
       `ai-mcp-server-v1/tools/` and restarting the server **auto-registers** a
-      `POST /tools/<name>` endpoint — **no change to `main.py`**.
-- [ ] Auto-registered tools keep the existing cross-cutting behaviour for free: per-call
+      `POST /tools/<name>` endpoint — **no change to `main.py`**. _(via `sdk.discover()` +
+      `register_tools()`.)_
+- [x] Auto-registered tools keep the existing cross-cutting behaviour for free: per-call
       logging to `mcp_tool_calls`, the `mcp_tool_timeout_seconds` timeout, and auth-tier
       enforcement (401 missing key / 403 wrong tier) — i.e. each handler is still wrapped in
       `run_tool()` under the declared `Tier`.
-- [ ] The existing ~12 tools are migrated onto the same convention (one registration path,
-      not two); the live HTTP contract for every current tool is unchanged.
-- [ ] A new plugin shows up in the **admin Tool Tester** (`static/admin.html`) and is
+- [x] The existing ~12 tools are migrated onto the same convention (one registration path,
+      not two); the live HTTP contract for every current tool is unchanged. _(thin-wrapper
+      handlers; `get_trusted_sources` moved GET → POST per decision #3.)_
+- [x] A new plugin shows up in the **admin Tool Tester** (`static/admin.html`) and is
       callable from it, with request validation (Pydantic) and the OpenAPI schema populated.
-- [ ] `docs/extending.md` documents the contract + a worked example; one **example plugin**
-      ships in `tools/` (e.g. `echo` or a trivial calculator) and is exercised by a test.
-- [ ] **n8n:** `docs/` describes the RAG + MCP HTTP endpoints as n8n HTTP-Request targets,
-      and the **two starter workflows below** are committed as JSON exports and import
-      cleanly into the bundled `ai-n8n-v1`.
-- [ ] **Demo workflow A — "Ask your documents"** (flagship): an n8n webhook → `POST
-      /api/query` on the RAG client → cited answer. Needs a seeded vertical **document** set
-      (e.g. a small HR-policy handbook) ingested via `/api/ingest`.
-- [ ] **Demo workflow B — live business-data Q&A via MCP**: an n8n AI-agent / HTTP node →
-      MCP tool call → answer from **current operational data**. Requires (a) a **dummy
-      operational dataset** and (b) **parameterized MCP plugin tools** that query it (this
-      doubles as the flagship Plugin-SDK demo — see "Demo content" below).
-- [ ] (Deferred — see Open Questions #5) The parallel **RAG pipeline-step hook** is NOT built
+      _(Tester now reads `GET /tools` dynamically.)_
+- [x] `docs/extending.md` documents the contract + a worked example; one **example plugin**
+      ships in `tools/echo.py` and is exercised by a test (`test_plugins.py`).
+- [x] **n8n:** `ai-infrastructure-v1/n8n/README.md` describes the RAG + MCP HTTP endpoints as
+      n8n HTTP-Request targets, and the **two starter workflows** are committed as JSON
+      exports under `n8n/workflows/`. _(Clean-import verification is the live "Testing" step.)_
+- [x] **Demo workflow A — "Ask your documents"** (flagship): n8n webhook → `POST /api/query`
+      → cited answer. Vertical = **equipment/product manuals**; fixtures +
+      `demo/ingest_demo_docs.py` ship in the RAG repo.
+- [x] **Demo workflow B — live business-data Q&A via MCP**: webhook → HTTP node → MCP tool.
+      Dummy dataset = RAG migration `0005` (`demo_invoices`/`demo_inventory`, SELECT to
+      `mcp_user`); parameterized tools = `tools/demo_business.py`
+      (`count_open_invoices`, `inventory_lookup`).
+- [x] (Deferred — see Open Questions #5) The parallel **RAG pipeline-step hook** is NOT built
       this phase.
 
 ## Affected Repos / Surfaces
