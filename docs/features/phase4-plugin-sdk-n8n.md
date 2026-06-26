@@ -1,14 +1,17 @@
 # Feature: Phase 4 — Workflow extensibility: Plugin SDK + n8n
 
 ## Status
-[x] Spec  [x] In Progress  [ ] Testing  [ ] Done
+[x] Spec  [x] In Progress  [x] Testing  [x] Done
 
-_Last updated: 2026-06-26 — implemented. Plugin SDK + 12-tool migration + example/demo
-plugins + dynamic admin Tool Tester shipped; MCP pytest suite green (61 tests). RAG
-migration 0005, equipment-manual fixtures + ingest script, and the two n8n workflow exports
-committed. **Remaining for "Testing":** live end-to-end run — `./start.ps1`, apply 0005,
-run `demo/ingest_demo_docs.py`, import both n8n workflows and execute against the live API
-(needs the Docker stack up; not run in this coding session)._
+_Last updated: 2026-06-26 — **done, live-verified end-to-end.** Plugin SDK + 12-tool
+migration + example/demo plugins + dynamic admin Tool Tester shipped; MCP pytest green (61),
+RAG pytest green (67 pass / 19 pre-existing integration skips on test-DB creds). Live run on
+the Docker stack: migration 0005 applied + demo tables seeded; `GET /tools` lists 15
+auto-discovered tools; Workflow A returns a cited answer from the equipment manuals;
+Workflow B returns the combined invoices + inventory payload via the demo MCP tools.
+Two bugs caught during the live run and fixed (infra PR #2, rag PR #2): the Windows-console
+crash in `ingest_demo_docs.py`, and n8n Workflow B's chained-node `$json` references
+(must reference the Webhook node explicitly)._
 
 ## Problem Statement
 The stack is now a working, fully-local intro app — but extending it still means
