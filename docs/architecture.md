@@ -449,3 +449,13 @@ identical embed model + dim (`mxbai-embed-large`/1024); the MCP server's startup
 check guards its side, and the client seam is configured to match. *Rejected:* making the
 client the sole retrieval owner — it would fork retrieval behaviour away from other callers
 and defeat the point of a shared tool server.
+
+> **Maintenance obligation — the two retrieval paths MUST stay in sync.** Despite the
+> "centralised" intent, retrieval is physically **duplicated** (no shared package): the MCP
+> server's `ai-mcp-server-v1/tools/rag.py` (`document_search`) and the RAG client's
+> `app/services/rag.py` (`retrieve`) are parallel copies of the same logic — `_semantic_search`,
+> `_keyword_search`, `_merge_rrf`, `_collapse_to_parents`, constants (`RRF_K=60`, thresholds),
+> the reranker stage, and the returned dict shape. **Any retrieval change must land in both**, or
+> the primary (MCP) path and the local fallback silently diverge. Two concrete precedents: the
+> parent/child collapse (mirrored in both) and the cross-encoder **reranker** (added to both,
+> 2026-06-28). When you touch one, grep the other for the same function and mirror it.
