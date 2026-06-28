@@ -42,10 +42,12 @@ switch + user-selectable **dynamic MCP tools** (both shipped).
 | `ai-database-v1` | PostgreSQL 16 + pgvector schema, least-privilege users | 5432 |
 | `ai-mcp-server-v1` | FastAPI MCP tool server (memory, web, vector, rag) — **reference impl** for async/pydantic patterns | 8001 |
 | `ai-rag-llm-client-v1` | FastAPI + Vue 3 agentic RAG client | 8000 |
-| `ai-n8n-v1` *(planned, Phase 2)* | Dedicated n8n for client workflows | 5678 |
+| `ai-n8n-v1` *(not a repo — shipped Phase 2)* | Dedicated n8n for client workflows; stock `n8nio/n8n:latest` compose service (no source dir), with workflows under `ai-infrastructure-v1/n8n/workflows/` | 5678 |
 
-Each repo is its **own git repo**; work for this effort is on branch
-`feat/local-intro-app` (off `agentic_ai_attempt_v1`).
+The first four rows are each their **own git repo**; work for this effort is on
+branch `feat/local-intro-app` (off `agentic_ai_attempt_v1`). `ai-n8n-v1` is **not
+a repo** — it is an image-based Docker Compose service defined in
+`ai-infrastructure-v1/docker-compose.yml`.
 
 ## Tech Stack (target state)
 
