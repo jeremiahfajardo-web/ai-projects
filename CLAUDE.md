@@ -83,9 +83,14 @@ authoring new modules. Summary:
 - **Architecture:** for any new service/route, sketch the data flow first (caller →
   function → external dep → response shape). Flag schema-affecting decisions early —
   schema changes are expensive once data exists.
-- **Feature dev:** branch `feat/<short-description>`; backend route + service + model
-  first, then the Vue component; happy path then explicit error handling; write ≥2 unit
-  tests right after a service.
+- **Feature dev:** branch `feat/<short-description>`; happy path then explicit error
+  handling; write ≥2 unit tests right after a service.
+- **BE-before-FE (hard gate):** for any spec spanning backend **and** frontend, build the
+  **entire backend slice first** (route + service + model) and **test it thoroughly**
+  (unit + integration green, plus a live smoke check) **before writing any of the paired
+  frontend**. The FE is started only once its BE counterpart is verified — never in
+  parallel, never FE-first. This keeps the contract (schemas, SSE event shapes) settled
+  before the UI consumes it.
 - **Testing:** unit in `tests/unit/` (mock Ollama + DB); integration in `tests/integration/`
   (`httpx.AsyncClient` + uvicorn fixture, test DB); Vitest for composables/stores; target
   ≥80% coverage on `services/`. Run the suite before calling anything done.
