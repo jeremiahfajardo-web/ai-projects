@@ -10,27 +10,29 @@ a local Ollama.
 **Solo developer — you (Claude) are the co-pilot for every SDLC phase** (requirements,
 architecture, implementation, testing, evaluation).
 
-## Active Direction (2026-06-25)
+## Direction — local intro-app rework (Phases 0–4 shipped 2026-06)
 
-The stack is being reworked into a **downloadable "truly local" intro app** a prospective
-client can run with minimal setup — built so a full client deployment is an **additive**
-next step, not a rewrite. Governing rule: **defer the features, build the seams.**
+The stack was reworked into a **downloadable "truly local" intro app** a prospective client
+can run with minimal setup — built so a full client deployment is an **additive** next step,
+not a rewrite. Governing rule (still in force): **defer the features, build the seams.**
 
-Authoritative plan: `~/.claude/plans/optimized-mapping-harbor.md`. Headline changes:
+Authoritative plan: `~/.claude/plans/optimized-mapping-harbor.md`. Headline changes, all
+**shipped**:
 - Embeddings `mxbai-embed-large` → **`VECTOR(1024)`** (+ provenance/alignment check)
-- RAG client **Flask → FastAPI** rewrite (the MCP server is already FastAPI/async)
+- RAG client **Flask → FastAPI** rewrite (matches the already-async MCP server)
 - **Containerised Ollama** with **GPU auto-detect** (`llama3.1:8b` GPU / `llama3.2:3b` CPU)
 - Dedicated **`ai-n8n-v1`** container; **Plugin SDK** (auto-discovered MCP tools) + n8n
 - Schema-only **`user_id`** ownership + **soft-delete** behind a `get_current_user()` seam
-- A **`providers/`** seam so a cloud LLM/embedding adapter is additive later
+- A **`providers/`** seam (Anthropic cloud LLM adapter shipped; embeddings stay local)
 
-Phased: **0** foundations/docs · **1** schema (1024+provenance+user_id+soft-delete, clean
-DB wipe) · **2** containerise Ollama + GPU + `ai-n8n-v1` + one-command start · **3**
-FastAPI + Pydantic + provider seam + design-token CSS · **4** Plugin SDK + n8n workflows.
+Phases: **0** foundations/docs · **1** schema (1024+provenance+user_id+soft-delete) · **2**
+containerise Ollama + GPU + `ai-n8n-v1` + one-command start · **3** FastAPI + Pydantic +
+provider seam + design-token CSS · **4** Plugin SDK + n8n workflows. Later: cloud-LLM demo
+switch + user-selectable **dynamic MCP tools** (both shipped).
 
-> Docs (this file, the READMEs, `docs/architecture.md`) still describe parts of the
-> **pre-rework** running stack. They are updated **per phase as code actually ships** —
-> trust the plan for the target, the code for current state.
+> Docs (this file, the READMEs, `docs/architecture.md`) were synced to the shipped stack on
+> 2026-06-27. They are kept current **per change as code ships** — trust the code for current
+> state, the plan for any not-yet-built target.
 
 ## Repositories
 
@@ -39,7 +41,7 @@ FastAPI + Pydantic + provider seam + design-token CSS · **4** Plugin SDK + n8n 
 | `ai-infrastructure-v1` | Docker Compose orchestration + shared `.env` | — |
 | `ai-database-v1` | PostgreSQL 16 + pgvector schema, least-privilege users | 5432 |
 | `ai-mcp-server-v1` | FastAPI MCP tool server (memory, web, vector, rag) — **reference impl** for async/pydantic patterns | 8001 |
-| `ai-rag-llm-client-v1` | Vue 3 + (Flask→FastAPI) agentic RAG client | 8000 |
+| `ai-rag-llm-client-v1` | FastAPI + Vue 3 agentic RAG client | 8000 |
 | `ai-n8n-v1` *(planned, Phase 2)* | Dedicated n8n for client workflows | 5678 |
 
 Each repo is its **own git repo**; work for this effort is on branch
@@ -97,8 +99,9 @@ authoring new modules. Summary:
 
 ## Gotchas & Known Constraints
 
-- **Ollama:** today on the **Windows host** (`host.docker.internal:11434`); Phase 2 moves
-  it into the `ollama` container and repoints `OLLAMA_BASE_URL=http://ollama:11434`.
+- **Ollama:** containerised (Phase 2 shipped) — reached at `http://ollama:11434` over the
+  `ai-project` network; `ollama-init` pulls the models on first boot. (Pre-Phase-2 it ran on
+  the Windows host via `host.docker.internal:11434`.)
 - **GPU matters more than the container.** CPU-only `:8b` is 30–90s/response — the GPU
   auto-detect picks `llama3.2:3b` on CPU for a usable first run.
 - **DB is a bind-mount** (`E:/Database`); `docker-compose down -v` does **not** clear it —

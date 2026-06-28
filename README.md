@@ -1,9 +1,10 @@
 # ai-projects
 
 A fully local, containerised AI stack: document ingestion, agentic RAG, LLM
-generation, and persistent memory — no cloud API keys required.
+generation over MCP tools, and persistent memory — no cloud API keys required.
 
-Everything runs on your machine via Docker Compose and Ollama.
+Everything runs on your machine via Docker Compose, including a **containerised
+Ollama** (GPU auto-detected). One command brings the whole stack up.
 
 ---
 
@@ -11,66 +12,67 @@ Everything runs on your machine via Docker Compose and Ollama.
 
 | Repo | Role | Port |
 |---|---|---|
-| [ai-infrastructure-v1](../ai-infrastructure-v1) | Docker Compose orchestration and shared `.env` | — |
-| [ai-database-v1](../ai-database-v1) | PostgreSQL 16 + pgvector schema, user creation | 5432 |
-| [ai-mcp-server-v1](../ai-mcp-server-v1) | FastAPI MCP tool server (memory, web, vector) | 8001 |
-| [ai-rag-llm-client-v1](../ai-rag-llm-client-v1) | Flask + Vue 3 agentic RAG client | 8000 |
+| [ai-infrastructure-v1](../ai-infrastructure-v1) | Docker Compose orchestration, GPU-aware launcher, shared `.env` | — |
+| [ai-database-v1](../ai-database-v1) | PostgreSQL 16 + pgvector schema, least-privilege users | 5432 |
+| [ai-mcp-server-v1](../ai-mcp-server-v1) | FastAPI MCP tool server (memory, web, vector, rag, demo) | 8001 |
+| [ai-rag-llm-client-v1](../ai-rag-llm-client-v1) | FastAPI + Vue 3 agentic RAG client | 8000 |
+| [ai-n8n-v1](../ai-infrastructure-v1) (bundled) | Isolated n8n for client workflows | 5678 |
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Windows Host Machine                     │
-│                                                              │
-│  ┌───────────────┐                                           │
-│  │     Ollama    │  :11434                                   │
-│  │  llama3:8b    │  LLM generation + embeddings              │
-│  │ nomic-embed   │                                           │
-│  └───────┬───────┘                                           │
-│          │ host.docker.internal:11434                        │
-│          │                                                   │
-│  ┌───────┴────────────────────────────────────────────────┐  │
-│  │               Docker bridge: ai-project                │  │
-│  │                                                        │  │
-│  │  ┌──────────────────────┐   ┌───────────────────────┐  │  │
-│  │  │  ai-rag-llm-client   │   │   ai-mcp-server-v1    │  │  │
-│  │  │      Flask :8000     │──▶│     FastAPI :8001     │  │  │
-│  │  │      Vue 3 UI        │   │   11 tools over HTTP  │  │  │
-│  │  └──────────┬───────────┘   └───────────┬───────────┘  │  │
-│  │             │                            │              │  │
-│  │             └───────────┬────────────────┘              │  │
-│  │                         ▼                               │  │
-│  │              ┌────────────────────┐                     │  │
-│  │              │  ai-database-v1    │                     │  │
-│  │              │  PostgreSQL 16     │                     │  │
-│  │              │  + pgvector        │                     │  │
-│  │              │  E:/Database (vol) │                     │  │
-│  │              └────────────────────┘                     │  │
-│  └────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                      Docker bridge: ai-project                         │
+│                                                                        │
+│  ┌───────────────┐   ┌──────────────────────┐   ┌──────────────────┐  │
+│  │    ollama     │   │  ai-rag-llm-client    │   │  ai-mcp-server   │  │
+│  │  :11434       │◀──│     FastAPI :8000     │──▶│   FastAPI :8001  │  │
+│  │ llama3.1:8b / │   │      Vue 3 SPA        │   │  15 tools / HTTP │  │
+│  │ llama3.2:3b   │◀──────────────────────────── │  (auto-discovered)│  │
+│  │ mxbai-embed   │   └──────────┬───────────┘   └────────┬─────────┘  │
+│  └───────────────┘              │                         │            │
+│  (models pulled once            └────────────┬────────────┘            │
+│   by ollama-init)                            ▼                         │
+│                                ┌────────────────────────┐              │
+│                                │     ai-database-v1      │             │
+│                                │  PostgreSQL 16 + pgvector│             │
+│                                │  VECTOR(1024) / ivfflat  │             │
+│                                │  host bind-mount (vol)   │             │
+│                                └────────────────────────┘              │
+│                                                                        │
+│  ┌──────────────┐                                                      │
+│  │  ai-n8n-v1   │  :5678 (isolated volume + encryption key)            │
+│  └──────────────┘                                                      │
+└──────────────────────────────────────────────────────────────────────┘
 ```
+
+Inter-container DNS uses the container name (`ollama:11434`, `ai-database-v1:5432`,
+`ai-mcp-server-v1:8001`). No host Ollama install is required.
 
 ### Data flows
 
 **Query flow (agentic RAG)**
 ```
 Browser → POST /api/query/stream
-  → [MCP] memory_read      read relevant past memories
-  → [RAG] retrieve         pgvector + BM25 hybrid search
-  → [LLM] generate         Ollama streams tokens via SSE
-  → [MCP] memory_write     store conversation turn
-  → Browser receives tokens as they arrive
+  → [RAG] retrieve         hybrid pgvector + BM25 (via MCP document_search; local fallback)
+  → [LLM] generate         Ollama (or optional cloud) with the enabled MCP tools, up to 5 turns
+                           ↳ the model may call web_search, document_search, memory_read, … 
+                           ↳ tool calls stream to the UI as tool_call events
+  → [MCP] memory_write     store the conversation turn as episodic memory
+  → Browser receives tokens (and tool-call rows) as they arrive via SSE
 ```
+Tools advertised to the LLM are selected per request in the UI (or default to
+`LLM_ENABLED_TOOLS`); memory recall and web access are LLM-callable tools, not fixed steps.
 
 **Document ingestion**
 ```
 Browser → POST /api/ingest (multipart)
   → text extraction (PDF / DOCX / XLSX / PPTX / MD / HTML / TXT)
-  → chunking (512 tokens, 50 overlap)
-  → Ollama embed (nomic-embed-text, 768 dims)
-  → INSERT document_chunks (VECTOR(768) + tsvector)
+  → structure-aware parent/child chunking (token-based)
+  → Ollama embed (mxbai-embed-large, 1024 dims — passage side)
+  → INSERT parents + embedded children (VECTOR(1024) + tsvector)
 ```
 
 **MCP web crawl**
@@ -87,79 +89,53 @@ POST /tools/web_crawl_and_store
 
 | Layer | Technology | Notes |
 |---|---|---|
-| LLM inference | Ollama (llama3:8b) | Runs on Windows host, GPU or CPU |
-| Embeddings | Ollama (nomic-embed-text) | 768-dim vectors |
-| Vector DB | PostgreSQL 16 + pgvector | ivfflat indexes, lists=100 |
-| Full-text search | PostgreSQL tsvector + GIN | Hybrid with RRF merge |
-| RAG client backend | Python 3.12 / Flask | flask[async], SQLAlchemy, httpx |
-| RAG client frontend | Vue 3 CDN | Responsive, dark mode, SSE streaming |
-| MCP tool server | Python 3.12 / FastAPI | asyncpg, 11 tools, 4-layer auth |
-| Orchestration | Docker Compose | Bridge network, health checks |
-| Web search | Brave Search API | Optional for MCP web tools |
-| Web scraping | Jina Reader API | Optional for MCP web tools |
+| LLM inference | Ollama (containerised) | `llama3.1:8b` (GPU) / `llama3.2:3b` (CPU), auto-selected |
+| Optional cloud LLM | Anthropic (Claude) | Demo-only, opt-in via `LLM_PROVIDER=anthropic`; **embeddings stay local** |
+| Embeddings | Ollama (mxbai-embed-large) | 1024-dim vectors, via a `providers/` seam |
+| Vector DB | PostgreSQL 16 + pgvector | `VECTOR(1024)`, ivfflat indexes (lists=100) |
+| Full-text search | PostgreSQL tsvector + GIN | Hybrid with RRF merge (k=60) |
+| RAG client backend | Python 3.12 / FastAPI | uvicorn (ASGI), asyncpg, Pydantic v2, httpx |
+| RAG client frontend | Vue 3 + Vite | Built SPA, responsive, design tokens, SSE streaming |
+| MCP tool server | Python 3.12 / FastAPI | asyncpg, 15 auto-discovered tools, tiered auth |
+| Workflows | n8n (isolated) | Bundled `ai-n8n-v1` for client automations |
+| Orchestration | Docker Compose | Bridge network, health checks, GPU-aware launcher |
+| Web search / scraping | Brave Search / Jina Reader | Optional, for MCP web tools |
 
 ---
 
 ## Quick start
 
+The authoritative, one-command setup lives in
+[ai-infrastructure-v1](../ai-infrastructure-v1/README.md). Summary:
+
 ### 1. Prerequisites
 
-- **Docker Desktop** — install and start it
-- **Ollama** — [download for Windows](https://ollama.com/download/windows), install, start
-
-Pull the required models (one-time):
-```bash
-ollama pull llama3:8b
-ollama pull nomic-embed-text
-```
-
-Optional — store models on a larger drive:
-```powershell
-# PowerShell — set once, then restart Ollama from the system tray
-[System.Environment]::SetEnvironmentVariable("OLLAMA_MODELS", "D:\OllamaModels", "User")
-```
+- **Docker Desktop** (Linux containers). No host Ollama needed — it runs in a container.
+- _(Optional)_ **NVIDIA GPU + Container Toolkit** — auto-detected to enable `llama3.1:8b`
+  with GPU acceleration; CPU-only hosts fall back to `llama3.2:3b`.
+- All sibling repos cloned under one parent (e.g. `C:\projects\`).
 
 ### 2. Configure environment
 
 ```bash
 cd ai-infrastructure-v1
 cp .env.example .env
+# fill in every `changeme` value (DB passwords, MCP_API_KEY, N8N_ENCRYPTION_KEY,
+# and the Brave/Jina keys for web tools)
 ```
 
-Edit `.env` and fill in the required values:
+### 3. Start the stack
 
-```ini
-# Passwords (choose anything for dev)
-POSTGRES_PASSWORD=changeme
-RAG_DB_PASSWORD=changeme_rag
-MCP_DB_PASSWORD=changeme_mcp
-
-# Flask secret key — generate with: python -c "import secrets; print(secrets.token_hex(32))"
-SECRET_KEY=your_generated_key
-
-# API keys (required for MCP web tools)
-MCP_API_KEY=any_alphanumeric_string
-BRAVE_SEARCH_API_KEY=your_brave_key
-JINA_API_KEY=your_jina_key           # optional — free tier works without
+```powershell
+./start.ps1     # Windows (PowerShell) — probes nvidia-smi, picks the LLM model, builds + starts
 ```
-
-### 3. Start all services
-
 ```bash
-cd ai-infrastructure-v1
-docker-compose up -d
+./start.sh      # Linux / macOS
 ```
 
-Docker will:
-1. Start `ai-database-v1` and initialise the schema + users
-2. Start `ai-mcp-server-v1` (waits for DB healthy)
-3. Start `ai-rag-llm-client-v1` (waits for DB + MCP healthy)
-
-Check status:
-```bash
-docker-compose ps
-docker-compose logs -f ai-rag-llm-client-v1
-```
+On first boot, `ollama-init` pulls the embedding + LLM models into a named volume
+(several minutes — `docker compose logs -f ollama-init`), then the database, MCP
+server, and RAG client come up in dependency order.
 
 ### 4. Open the UI
 
@@ -167,87 +143,92 @@ docker-compose logs -f ai-rag-llm-client-v1
 |---|---|
 | RAG client (main UI) | [http://localhost:8000](http://localhost:8000) |
 | MCP admin dashboard  | [http://localhost:8001/admin](http://localhost:8001/admin) |
+| MCP API docs         | [http://localhost:8001/docs](http://localhost:8001/docs) |
+| n8n                  | [http://localhost:5678](http://localhost:5678) (or `N8N_HOST_PORT`) |
 
 ---
 
 ## Clean restart (wipe data)
 
-The PostgreSQL data lives in a bind-mount on your host at the path set by
-`DB_DATA_PATH` in `ai-infrastructure-v1/.env` (currently `E:/Database`).
-Docker's `down -v` does **not** clear bind-mounts — you must delete the
-directory contents manually.
+The PostgreSQL data lives in a host **bind-mount** at the path set by `DB_DATA_PATH`
+in `ai-infrastructure-v1/.env` (e.g. `E:/Database`). Docker's `down -v` does **not**
+clear bind-mounts — delete the directory contents manually.
 
 ```bash
-# Stop all containers
-docker-compose down
+cd ai-infrastructure-v1
+docker compose down
 
-# Wipe the database volume (bash / Git Bash — adjust path to match DB_DATA_PATH)
+# Wipe the database dir (Git Bash — adjust path to match DB_DATA_PATH)
 rm -rf /e/Database/*
 
-# Rebuild images to pick up any init-script changes, then start
-docker-compose build --no-cache ai-database-v1
-docker-compose up -d
+# Re-start (the init scripts re-run on the empty data dir)
+./start.ps1
 ```
 
-Confirm the init scripts ran successfully:
-```bash
-docker-compose logs ai-database-v1 | grep 'users rag_user'
-# expected: DB users rag_user and mcp_user created/updated.
-```
+> Changing the embedding model is **destructive** — the `VECTOR(1024)` column + ivfflat
+> index are model/dim-specific, and the MCP server's startup alignment check fails fast on a
+> mismatch. Wipe and re-ingest after any embedding-model change.
 
 ---
 
 ## Environment variables reference
 
-All variables live in `ai-infrastructure-v1/.env`. See [.env.example](../ai-infrastructure-v1/.env.example) for defaults.
+All variables live in `ai-infrastructure-v1/.env`; see
+[.env.example](../ai-infrastructure-v1/.env.example) for the authoritative list and defaults.
 
 ### Database
-
 | Variable | Description |
 |---|---|
-| `POSTGRES_USER` | Superuser name (default: `postgres`) |
-| `POSTGRES_PASSWORD` | Superuser password |
-| `POSTGRES_DB` | Database name (default: `ai-db`) |
-| `RAG_DB_PASSWORD` | Password for `rag_user` (least-privilege) |
-| `MCP_DB_PASSWORD` | Password for `mcp_user` (least-privilege) |
-| `POSTGRES_HOST_PORT` | Host-side port binding (default: `5432`) |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Superuser + database name (default db `ai-db`) |
+| `RAG_DB_PASSWORD` / `MCP_DB_PASSWORD` | Least-privilege app account passwords |
+| `POSTGRES_HOST_PORT` | Host-side port (default `5432`) |
+| `DB_DATA_PATH` | Host bind-mount for the data directory |
 
-### Ollama
-
+### Ollama (containerised; shared by both services)
 | Variable | Description |
 |---|---|
-| `OLLAMA_BASE_URL` | Ollama URL (default: `http://host.docker.internal:11434`) |
-| `OLLAMA_LLM_MODEL` | Generation model (default: `llama3:8b`) |
-| `OLLAMA_EMBED_MODEL` | Embedding model (default: `nomic-embed-text`) |
-| `EMBEDDING_DIMENSIONS` | Embedding vector width (default: `768`) |
+| `OLLAMA_BASE_URL` | Ollama URL (default `http://ollama:11434`) |
+| `OLLAMA_LLM_MODEL` | Generation model (launcher-selected: `llama3.1:8b` GPU / `llama3.2:3b` CPU) |
+| `OLLAMA_EMBED_MODEL` | Embedding model (default `mxbai-embed-large`) |
+| `EMBEDDING_DIMENSIONS` | Vector width — must match the model (default `1024`) |
+| `LLM_TEMPERATURE` / `LLM_MAX_TOKENS` / `LLM_TIMEOUT` / `EMBED_TIMEOUT` | Generation + I/O tuning |
+
+### LLM provider (optional cloud demo)
+| Variable | Description |
+|---|---|
+| `LLM_PROVIDER` | `ollama` (default, local) or `anthropic` (cloud, demo-only) |
+| `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | Used only when `LLM_PROVIDER=anthropic`; embeddings always stay on Ollama |
 
 ### MCP server
-
 | Variable | Description |
 |---|---|
-| `MCP_API_KEY` | Auth key for all tool calls |
-| `BRAVE_SEARCH_API_KEY` | Brave Search API key |
-| `JINA_API_KEY` | Jina Reader API key (optional) |
-| `MCP_TOOL_TIMEOUT_SECONDS` | Per-tool timeout (default: `10`) |
-| `MCP_HOST_PORT` | Host port (default: `8001`) |
+| `MCP_API_KEY` | Auth key for all tool calls (tiered: read/write/delete) |
+| `BRAVE_SEARCH_API_KEY` / `JINA_API_KEY` | Web search / scraping (optional) |
+| `MCP_TOOL_TIMEOUT_SECONDS` | Per-tool timeout (default `120`) |
+| `WEB_CACHE_DEFAULT_TTL_HOURS` / `MEMORY_DEFAULT_TTL_DAYS` | Cache / memory TTLs |
+| `MCP_HOST_PORT` | Host port (default `8001`) |
 
 ### RAG client
-
 | Variable | Description |
 |---|---|
-| `RAG_TOP_K` | Default retrieved chunks per query (default: `5`) |
-| `RAG_SIMILARITY_THRESHOLD` | Absolute cosine similarity floor (default: `0.20`) |
-| `RAG_RELATIVE_THRESHOLD` | Relative drop tolerance (default: `0.20`) |
-| `LLM_TIMEOUT` | LLM call timeout in seconds (default: `300`) |
-| `DEFAULT_USER_ID` | Default memory user identity (default: `default`) |
-| `RAG_HOST_PORT` | Host port (default: `8000`) |
+| `RAG_TOP_K` | Default retrieved chunks per query (default `5`) |
+| `RAG_SIMILARITY_THRESHOLD` / `RAG_RELATIVE_THRESHOLD` | Absolute / relative similarity floors (default `0.20`) |
+| `LLM_ENABLED_TOOLS` | CSV of MCP tools advertised to the LLM by default (UI selector overrides per request) |
+| `RAG_HOST_PORT` | Host port (default `8000`) |
+
+### n8n / shared
+| Variable | Description |
+|---|---|
+| `N8N_HOST_PORT` / `N8N_ENCRYPTION_KEY` / `N8N_HOST` | Isolated n8n config (port, encryption key, host) |
+| `DEFAULT_USER_ID` | Default memory/ownership user (a UUID; the seeded local user) |
+| `LOG_LEVEL` | Logging level |
 
 ---
 
 ## Detailed documentation
 
 - [Architecture deep-dive](docs/architecture.md)
+- [ai-infrastructure-v1 README](../ai-infrastructure-v1/README.md)
 - [ai-database-v1 README](../ai-database-v1/README.md)
 - [ai-mcp-server-v1 README](../ai-mcp-server-v1/README.md) · [API reference](../ai-mcp-server-v1/docs/api-reference.md)
 - [ai-rag-llm-client-v1 README](../ai-rag-llm-client-v1/README.md)
-- [ai-infrastructure-v1 README](../ai-infrastructure-v1/README.md)

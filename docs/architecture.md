@@ -1,9 +1,9 @@
 # Architecture deep-dive
 
-**Status:** Pre-rework baseline — describes the **current running** stack
-(Flask RAG client, host Ollama, `VECTOR(768)`/nomic-embed-text). Sections are revised
-**per phase as code ships**, not ahead of it. For the target design and rationale see
-*Active Direction* below.
+**Status:** Current — reflects the **shipped** local intro-app stack (FastAPI RAG client,
+containerised Ollama, `VECTOR(1024)`/mxbai-embed-large). Sections are revised **per phase as
+code ships**. The *Rework (shipped)* section below records the deltas from the original
+baseline and the reasoning behind each.
 
 ## Conventions for this document
 
@@ -13,11 +13,11 @@ explicitly rejected. When a phase ships, update the affected section in the same
 and move its line under the dated status note. Keep the doc honest: it should match the
 code that exists, with the target captured under *Active Direction* until built.
 
-## Active Direction (2026-06-25) — local intro-app rework
+## Rework (shipped 2026-06) — local intro-app
 
-The stack is being reworked into a downloadable, truly-local intro app with
-forward-compatible seams (**defer the features, build the seams**). Target deltas vs. the
-baseline below:
+The stack was reworked into a downloadable, truly-local intro app with forward-compatible
+seams (**defer the features, build the seams**). Deltas vs. the original baseline — all now
+shipped:
 
 - **Embeddings:** `mxbai-embed-large` → `VECTOR(1024)` + embedding provenance/alignment
   check. *Why:* 1024 is the standard upgrade from 768 (no model emits "1064"); provenance
@@ -45,7 +45,7 @@ ai-projects/              ← this repo (documentation only)
 ai-infrastructure-v1/     ← docker-compose + shared .env
 ai-database-v1/           ← PostgreSQL schema + user bootstrap
 ai-mcp-server-v1/         ← MCP tool server (FastAPI)
-ai-rag-llm-client-v1/     ← RAG client (Flask + Vue 3)
+ai-rag-llm-client-v1/     ← RAG client (FastAPI + Vue 3)
 ```
 
 Each component repo is independently deployable. The infrastructure repo wires
@@ -56,8 +56,12 @@ communication is HTTP.
 
 ## 2. Database schema
 
-Managed by `ai-database-v1`. All vector columns use `VECTOR(768)` matching
-`nomic-embed-text`'s output.
+Managed by `ai-database-v1`. All vector columns use `VECTOR(1024)` matching
+`mxbai-embed-large`'s output, with embedding provenance (`embedding_model`,
+`embedding_dimension`) on every vector table. Every user-owned table carries
+`user_id UUID NOT NULL REFERENCES users(id)` plus a `deleted_at` soft-delete column;
+a `users` table seeds one default local user (`document_chunks` parents/children come from
+the structure-aware parent/child ingestion — see §4).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -72,7 +76,7 @@ Managed by `ai-database-v1`. All vector columns use `VECTOR(768)` matching
 │   id (uuid)                                                     │
 │   document_id (fk)                                              │
 │   chunk_index, content, token_count                             │
-│   embedding VECTOR(768)          ← pgvector cosine search       │
+│   embedding VECTOR(1024)          ← pgvector cosine search       │
 │   search_vector TSVECTOR (gen'd) ← BM25 keyword search          │
 └─────────────────────────────────────────────────────────────────┘
 
@@ -82,7 +86,7 @@ Managed by `ai-database-v1`. All vector columns use `VECTOR(768)` matching
 │   user_id, session_id                                           │
 │   content, memory_type (episodic|semantic|working|procedural)   │
 │   importance_score, ttl_days                                    │
-│   embedding VECTOR(768)                                         │
+│   embedding VECTOR(1024)                                         │
 │   search_vector TSVECTOR (gen'd)                                │
 │   pending_delete (for two-phase delete gate)                    │
 └─────────────────────────────────────────────────────────────────┘
@@ -90,7 +94,7 @@ Managed by `ai-database-v1`. All vector columns use `VECTOR(768)` matching
 ┌─────────────────────────────────────────────────────────────────┐
 │ web_cache           ← MCP web_crawl_and_store results           │
 │   url (unique), content, chunk_index                            │
-│   embedding VECTOR(768)                                         │
+│   embedding VECTOR(1024)                                         │
 │   search_vector TSVECTOR (gen'd)                                │
 │   fetched_at, ttl_hours                                         │
 └─────────────────────────────────────────────────────────────────┘
@@ -131,7 +135,7 @@ via `current_setting()`.
 
 ## 3. MCP server (ai-mcp-server-v1)
 
-FastAPI application exposing 12 tools over authenticated HTTP.
+FastAPI application exposing 15 auto-discovered tools over authenticated HTTP.
 
 ### Auth model
 
@@ -250,50 +254,48 @@ without explicit human confirmation.
 
 ## 4. RAG client (ai-rag-llm-client-v1)
 
-Flask + Vue 3 application with a four-step agentic query pipeline.
+FastAPI + Vue 3 application with an agentic query pipeline.
 
 ### Agentic pipeline
 
 ```
 POST /api/query/stream
   │
-  ├─ 1. memory_read   → MCP /tools/memory_read (skipped if MCP unconfigured)
-  │      Returns top-5 memories semantically related to the query;
-  │      filtered client-side by per-request similarity_threshold
-  │      (falls back to RAG_SIMILARITY_THRESHOLD, default 0.20)
-  │
-  ├─ 2. retrieve      → MCP /tools/document_search (when MCP configured)
+  ├─ 1. retrieve      → MCP /tools/document_search (when MCP configured)
   │      Hybrid pgvector + BM25 search on document_chunks, logged in MCP admin
   │      Fallback: direct rag.retrieve() when MCP unavailable
   │      Filtered by RAG_SIMILARITY_THRESHOLD (absolute) +
   │                    RAG_RELATIVE_THRESHOLD (relative to top chunk)
   │
-  ├─ 3. generate      → Ollama /api/chat with tool definitions (up to 5 turns)
-  │      LLM may call: document_search, web_search, web_crawl_and_store, web_fetch_cached
-  │      Each tool call dispatched via MCPClient → result appended to message history
-  │      System prompt = memories + retrieved chunks
-  │      Tokens streamed to browser via SSE
+  ├─ 2. generate      → provider.chat with the ENABLED MCP tool defs (up to 5 turns)
+  │      Tool list is built per request from the live MCP catalog (GET /tools),
+  │      filtered by the UI selector / LLM_ENABLED_TOOLS; delete-tier withheld.
+  │      The model may call any enabled tool (web_search, document_search,
+  │      memory_read, …); each call → MCPClient.call_tool → result appended to
+  │      the message history. tool_call events stream to the UI.
+  │      Provider seam: Ollama (default) or Anthropic (LLM_PROVIDER=anthropic).
+  │      System prompt = retrieved chunks (+ tool guidance). Tokens streamed via SSE.
   │
-  └─ 4. memory_write  → MCP /tools/memory_write (skipped if MCP unconfigured)
+  └─ 3. memory_write  → MCP /tools/memory_write (skipped if MCP unconfigured)
          Stores "User asked X / Assistant answered Y" as episodic memory
 ```
 
+Memory recall is **not** a fixed step — `memory_read` is an LLM-callable tool (enabled by
+default, removable in the selector), so prior turns are pulled only when relevant instead of
+being injected into every prompt.
+
 ### SSE streaming architecture
 
-Flask/Werkzeug cannot yield from an async generator. The streaming endpoint
-uses a Queue + Thread pattern:
+The backend is async (FastAPI/uvicorn), so the streaming endpoint yields directly from an
+async generator via `sse-starlette` — no Queue+Thread bridge:
 
 ```
-sync Flask route handler
+async def stream_query(request) -> EventSourceResponse
   │
-  ├── captures config snapshot (current_app proxy is not thread-safe)
-  ├── spawns daemon Thread
-  │     Thread: new asyncio event loop + app_context
-  │             runs _agentic_flow() → puts events into queue.Queue
-  │
-  └── returns Response(generate(), content_type='text/event-stream')
-        generate() is a sync generator that reads from queue
-        yields "data: {...}\n\n" until sentinel None is received
+  └── EventSourceResponse(_sse(_agentic_flow(params)))
+        _agentic_flow() is an async generator that yields event dicts
+        (step / tool_call / token / done / error); _sse() frames each as
+        "data: {...}" — emitted to the browser as it is produced
 ```
 
 ### Similarity filtering
@@ -312,14 +314,12 @@ sync Flask route handler
 Both thresholds are configurable per-request via the query API and per-session
 via the UI dropdowns (0.05–0.95, step 0.05).
 
-**Memories (single-stage, applied client-side after memory_read):**
+**Memories (tool-driven):**
 
-`memory_read` returns the top-k rows by cosine proximity with no server-side
-score floor. The RAG client applies an absolute floor immediately after
-receiving results, so low-relevance memories from unrelated prior conversations
-are discarded before they reach the system prompt. The threshold used is the
-per-request `similarity_threshold` when provided, falling back to
-`RAG_SIMILARITY_THRESHOLD` from server config (default 0.20).
+Memory recall is no longer a hard-coded retrieval step with prompt injection. `memory_read`
+is an LLM-callable MCP tool the model invokes only when prior context is relevant; its results
+arrive as a tool result in the conversation, not as a permanent block in the system prompt.
+This removed the prompt pollution where every turn re-injected copies of the same prior Q&A.
 
 ### Document ingestion
 
@@ -334,9 +334,10 @@ POST /api/ingest (multipart/form-data)
   │     PPTX   → python-pptx
   │     HTML   → BeautifulSoup4
   │     MD/TXT → raw read
-  ├── chunking: 512 tokens, 50 token overlap (LangChain splitter)
-  ├── embedding: Ollama nomic-embed-text → 768-dim vector per chunk
-  └── INSERT document_chunks (embedding cast to VECTOR(768))
+  ├── structure-aware parent/child chunking (token-based: larger parents split into
+  │     overlapping children; only children are embedded + searched)
+  ├── embedding: Ollama mxbai-embed-large → 1024-dim vector per child (passage side)
+  └── INSERT parents + embedded children (embedding cast to VECTOR(1024))
 ```
 
 ---
@@ -391,24 +392,27 @@ reached via `host.docker.internal:11434`.)*
 
 ## 6. Key design decisions
 
-**Local-only inference** — Ollama eliminates cloud API costs and data privacy
-concerns. `llama3:8b` + `nomic-embed-text` run well on a consumer GPU (8 GB
-VRAM) or CPU (slower).
+**Local-only inference (cloud optional)** — a containerised Ollama eliminates cloud API
+costs and keeps data on-device by default. `llama3.1:8b` (GPU) / `llama3.2:3b` (CPU) for
+generation + `mxbai-embed-large` for embeddings run on a consumer GPU (8 GB VRAM) or CPU
+(slower). A `providers/` seam allows an opt-in cloud LLM (Anthropic) for a quality demo;
+embeddings always stay local.
 
-**Flask over FastAPI for the RAG client** — The existing codebase was Flask;
-switching frameworks mid-project would break migrations and test infrastructure
-without proportional benefit. `flask[async]` provides native async route
-support.
+**FastAPI for the RAG client (Phase 3)** — the client was rewritten Flask → FastAPI/uvicorn
+to match the already-async MCP server, drop the Queue+Thread SSE hack for native async
+streaming, and move off Flask-SQLAlchemy to a pure asyncpg pool. The original Flask choice
+("don't switch frameworks mid-project") was reversed once the async-SSE and asyncpg needs
+made the sync stack the bigger liability.
 
 **asyncpg + pgvector codec (MCP server)** — `register_vector` from the
 `pgvector` package handles `VECTOR` type serialisation natively. No string
 formatting of embedding arrays is needed for reads; only INSERT/UPDATE
 casts require `CAST($1 AS vector)`.
 
-**Queue + Thread SSE pattern (RAG client)** — Werkzeug's WSGI server cannot
-yield from async generators. A sync generator reading from a `queue.Queue`
-written by a background asyncio thread gives SSE streaming without requiring
-an ASGI server swap.
+**Native async SSE (RAG client)** — on FastAPI/uvicorn the streaming endpoint yields directly
+from an async generator via `sse-starlette`. The prior Flask-era Queue+Thread bridge (a sync
+generator draining a `queue.Queue` fed by a background asyncio thread) was removed in the
+Phase 3 rewrite.
 
 **ivfflat over HNSW** — ivfflat was available in pgvector first, integrates
 well with dev-scale datasets (< 10k rows), and the `probes=100` workaround for
