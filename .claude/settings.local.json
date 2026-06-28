@@ -4,7 +4,9 @@
       "WebFetch(domain:brave.com)",
       "Bash(docker cp *)",
       "Bash(docker-compose -f c:/projects/ai-infrastructure-v1/docker-compose.yml build --no-cache ai-mcp-server-v1)",
-      "Bash(docker-compose -f c:/projects/ai-infrastructure-v1/docker-compose.yml up -d --force-recreate ai-mcp-server-v1)"
+      "Bash(docker-compose -f c:/projects/ai-infrastructure-v1/docker-compose.yml up -d --force-recreate ai-mcp-server-v1)",
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:8001/tools/memory_read -H 'X-MCP-API-Key: mcp_api_key_766' -H 'X-User-ID: 00000000-0000-0000-0000-000000000001' -H 'Content-Type: application/json' -d '{\"query\":\"bitcoin\",\"top_k\":2}')",
+      "Bash(curl -s -w '\\\\nHTTP %{http_code}\\\\n' http://localhost:8001/tools/memory_write -H 'X-MCP-API-Key: mcp_api_key_766' -H 'X-User-ID: 00000000-0000-0000-0000-000000000001' -H 'Content-Type: application/json' -d '{\"content\":\"smoke: identity from header\",\"memory_type\":\"episodic\"}')"
     ]
   }
 }
