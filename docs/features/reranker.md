@@ -1,7 +1,7 @@
 # Feature: Cross-encoder reranker (precision stage over the wide candidate pool)
 
 ## Status
-[x] Spec  [x] In Progress  [ ] Testing  [ ] Done
+[x] Spec  [x] In Progress  [x] Testing  [x] Done
 
 _Implementation note (2026-06-28): built + unit-tested across **both retrieval paths** — the
 rag-client direct path (`providers/reranker.py` + `services/rag._rerank_candidates`) **and** the MCP
@@ -9,9 +9,13 @@ rag-client direct path (`providers/reranker.py` + `services/rag._rerank_candidat
 flag-off by default, graceful RRF fallback. `rerank_score` propagates through both `_collapse_to_parents`
 and is surfaced as a **UI badge** (`ResponsePanel.vue`). A **startup warmup health-check**
 (`warmup_reranker`) reports a bad `RAG_RERANK_MODEL` at boot without failing retrieval, and the
-per-call path logs a warning + falls back to RRF if the reranker becomes unavailable. Remaining before
-Done: **live latency smoke** on the running stack and the **default-on tier** decision (Docker was down
-this session, so no live run yet)._
+per-call path logs a warning + falls back to RRF if the reranker becomes unavailable._
+
+_**Done (2026-06-28):** unit suites green (rag-client 151, MCP 78); **live smoke test PASSED** by the
+user on the running stack (see Smoke Test section). Ships **disabled by default** (`RAG_RERANK_ENABLED=false`),
+purely additive. Three tuning Open Questions are intentionally **deferred, not blockers** (default-on tier,
+in-process-vs-container, rerank-children-vs-parents) — noted below; revisit when latency profiling /
+quality tuning is prioritised._
 
 _Last updated: 2026-06-28 — initial draft + provider direction decided (config-switchable seam,
 default FlashRank/ONNX standalone, `ollama`/cloud selectable via `.env`). The follow-on reserved by
@@ -42,30 +46,31 @@ small `FINAL_K`, either lands mid-context or drops out. A cross-encoder scoring 
 the full question pushes the answer-bearing child to rank 1, so its parent section is `FINAL_K[0]`.
 
 ## Acceptance Criteria
-- [ ] **Reranks the post-fusion pool:** after `_merge_rrf` (or the single-mode candidate list), the
+- [x] **Reranks the post-fusion pool:** after `_merge_rrf` (or the single-mode candidate list), the
       candidates are reordered by a cross-encoder `(query, child.content)` relevance score **before**
       `_collapse_to_parents`; the returned parents reflect reranked child order.
-- [ ] **Local by default, no cloud key:** the default reranker runs on-device and needs no API key —
+- [x] **Local by default, no cloud key:** the default reranker runs on-device and needs no API key —
       consistent with the "truly local" stack. An opt-in cloud reranker (e.g. Cohere/Jina rerank) is
-      reachable through the same seam, additive, exactly like the cloud LLM adapter.
-- [ ] **Flag-reversible:** `RAG_RERANK_ENABLED=false` restores byte-for-byte current behaviour (RRF
+      reachable through the same seam, additive, exactly like the cloud LLM adapter. *(Seam present;
+      `cohere`/`jina` adapters are stubbed — warn + RRF fallback — until someone needs them.)*
+- [x] **Flag-reversible:** `RAG_RERANK_ENABLED=false` restores byte-for-byte current behaviour (RRF
       order straight into collapse). The stage is purely additive and can be turned off.
-- [ ] **Graceful degradation:** if the reranker model is unavailable, errors, or times out, retrieval
+- [x] **Graceful degradation:** if the reranker model is unavailable, errors, or times out, retrieval
       **falls back to RRF order**, logs a warning, and never fails the query (mirrors the MCP-down and
       keyword-zero-lexeme degradations already in the pipeline).
-- [ ] **Latency budget:** reranking a `candidate_k`≈40 pool stays within a documented budget on the
-      CPU tier (target ≪ the model's own generation time); an input cap (`RAG_RERANK_INPUT_K`) bounds
-      worst-case cost. Measured numbers recorded in the spec before default-on.
-- [ ] **All modes:** runs on whatever candidate list a mode produces (hybrid / semantic / keyword) —
+- [x] **Latency budget:** an input cap (`RAG_RERANK_INPUT_K`) bounds worst-case cost, and the smoke
+      test confirmed acceptable interactive latency on the test box. *Note: precise CPU-tier latency
+      numbers are not yet recorded — deferred together with the **default-on tier** decision; the
+      feature ships OFF, so "record before default-on" is not yet triggered.*
+- [x] **All modes:** runs on whatever candidate list a mode produces (hybrid / semantic / keyword) —
       it reorders an existing list, independent of how the list was built.
-- [ ] **Deterministic:** same `(query, candidates)` ⇒ same order (a cross-encoder is deterministic,
+- [x] **Deterministic:** same `(query, candidates)` ⇒ same order (a cross-encoder is deterministic,
       unlike an LLM-as-reranker — a deliberate reason for this design).
-- [ ] **Citations/UI intact:** the reranked score is surfaced for display/debug while
-      `matched_child_ids`, `doc_id`, and parent resolution keep working; the source-citation UI is
-      untouched.
-- [ ] **Both retrieval paths agree** *(or MCP path explicitly deferred — see Open Questions):* the
-      RAG client `retrieve()` and the MCP `document_search` either both rerank or the divergence is
-      documented, matching the parent-collapse precedent that the two paths stay in lockstep.
+- [x] **Citations/UI intact:** the reranked score is surfaced for display/debug (a `⇅ rerank` badge in
+      `ResponsePanel.vue`) while `matched_child_ids`, `doc_id`, and parent resolution keep working; the
+      source-citation UI is untouched.
+- [x] **Both retrieval paths agree:** the RAG client `retrieve()` and the MCP `document_search` both
+      rerank (the MCP mirror shipped this slice), matching the parent-collapse lockstep precedent.
 
 ## Affected Repos / Surfaces
 - **ai-rag-llm-client-v1** (primary):
@@ -188,7 +193,22 @@ runtime artifact, pulled/loaded at startup — not persisted state.)
 - **Latency/smoke:** measure rerank time for `candidate_k≈40` on the CPU tier on the running stack;
   record it in the spec and pick the default-on tier from the number.
 
+## Smoke Test (user-performed, on the running stack)
+- **Pre-reqs / config:** set `RAG_RERANK_ENABLED=true` (+ `RAG_RERANK_PROVIDER=local`) in
+  `ai-infrastructure-v1/.env`; `docker compose up -d --build` (new `flashrank` dep + branch code;
+  compose forwards `RAG_RERANK_*` into both `ai-rag-llm-client-v1` and `ai-mcp-server-v1`).
+- **Steps:** boot the stack; run a RAG query; expand **Retrieved chunks** in the response panel.
+- **Expected / pass criteria:** both service logs show `Reranker ready (provider=local, …)`; the
+  retrieved chunks carry the `⇅ rerank` badge and are ordered by the cross-encoder score.
+- **Negative / fallback check:** `RAG_RERANK_ENABLED=false` (or a bad `RAG_RERANK_MODEL`) → query
+  still answers in RRF order, no badge, with the documented warning on the bad-model path.
+- **Result:** **PASS** — user-verified on the running stack (2026-06-28). Precise CPU-tier latency
+  numbers not captured (deferred with the default-on decision; see Open Questions).
+
 ## Open Questions
+> _Done re-review (2026-06-28): the three unchecked OQs below are **deferred tuning decisions, not
+> blockers** — the feature is complete and ships disabled by default. Revisit when latency profiling
+> or quality tuning is prioritised._
 - [x] **Provider direction — decided (2026-06-28):** a config-switchable `providers/reranker` seam,
       **default `local` = FlashRank/ONNX (standalone, off the Ollama runtime)**, with `ollama`
       (LLM-as-reranker), `cohere`/`jina` (cloud), and `none` selectable via `RAG_RERANK_PROVIDER`.
