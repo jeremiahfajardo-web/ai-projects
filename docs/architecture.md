@@ -148,6 +148,44 @@ delete → memory_delete
 
 Permission tiers are cumulative: a `write` key can also call `read` tools.
 
+### Tool identity contract (decision — 2026-06-27, target; see spec)
+
+The MCP server is a **shared service**: the RAG client, `ai-n8n-v1`, and any future caller
+hit the same `/tools/*`. Caller **identity therefore travels one way for all of them — the
+`X-User-ID` header**, set by each calling app from its own context. Tool handlers resolve
+identity from that header (the injected `ctx`), **never** from an LLM-facing request body
+field.
+
+*Why this direction:* it gives every caller one identity contract instead of per-app
+conventions. It also keeps `user_id` out of the JSON-schema the dynamic-tools feature shows
+the LLM — an opaque UUID the model cannot supply and must not invent — and spares automation
+(n8n) from passing a redundant body param on every call. *Rejected:* fixing it only
+client-side in the RAG client (strip the param from the LLM schema + re-inject at dispatch).
+That repairs the LLM path but leaves n8n and any other caller still sending `user_id` in the
+body, so the anomaly persists for the shared service. The root fix is server-side.
+
+Today most tools already follow this (handlers read `ctx.user_id`); the **memory tools**
+are the exception — they declare `user_id` (and `memory_summarize_session`: `session_id`) as
+required **body** fields and read `params.user_id`. Normalising those four to read `ctx`
+makes the contract uniform for the LLM, the RAG client, and n8n at once. Tracked in
+`ai-rag-llm-client-v1/docs/features/llm-tool-identity-injection.md`.
+
+Identity by tool relationship to data:
+- **User-scoped** (`memory_*`, user-owned `documents`): identity is intrinsic — the caller
+  must set `X-User-ID`. Automation sets the *specific owner* it acts on behalf of.
+- **Shared / stateless** (`web_*`, `echo`, `count_open_invoices`, `inventory_lookup`):
+  identity is attribution only (the `mcp_tool_calls` audit row). Absent/​system identity is
+  fine; automation uses a dedicated **system/service user_id** so the audit trail shows the
+  call came from a workflow, not a person.
+
+**Security note (forward-looking).** Identity is currently *asserted* in a freely-passed
+`X-User-ID` header behind the `get_current_user()` seam — any holder of the master key can
+claim any `user_id`. Acceptable for the single-user local intro-app, **but when real auth
+lands, identity must bind to the authenticated principal** (API key / token → a user or
+service account resolved server-side), not a trusted client header. The header becomes a
+hint the server validates against the principal, never the source of truth. Automation
+authenticates as its own service account, not by spoofing a user header.
+
 ### Tool registration — Plugin SDK (Phase 4, shipped)
 
 Tools are **auto-discovered**, not hand-wired in `main.py`. Each `tools/<name>.py` declares
@@ -390,3 +428,18 @@ environment at startup.
 range of result set sizes. It smooths rank differences enough that a document
 appearing in both semantic and keyword results reliably outscores one appearing
 in only one, without tuning needed per dataset.
+
+**Retrieval via MCP, with a local fallback (decision — 2026-06-27, kept).** Query-time
+retrieval prefers the MCP `document_search` tool (`_retrieve` → `mcp.document_search` when
+MCP is configured) and falls back to the RAG client's own `rag.retrieve()` only when MCP is
+unavailable. *Why:* it keeps retrieval **centralised in the MCP tool server**, so any capable
+caller — the RAG client, `ai-n8n-v1`, future apps — gets the *same* parent/child + RRF
+retrieval over one implementation, rather than each app reimplementing it. The client retains
+`rag.retrieve()` as a graceful-degradation path so a query still answers (RAG-only) when MCP
+is down. *Consequence on embeddings:* **ingestion** always embeds through the RAG client's
+`providers/` seam (Ollama, passage side); **query** embeds on whichever side runs retrieval —
+the MCP server when MCP is on, the client seam on the fallback. Both sides must use the
+identical embed model + dim (`mxbai-embed-large`/1024); the MCP server's startup alignment
+check guards its side, and the client seam is configured to match. *Rejected:* making the
+client the sole retrieval owner — it would fork retrieval behaviour away from other callers
+and defeat the point of a shared tool server.
