@@ -1,8 +1,11 @@
 name: docs-stale-check
 
-# Fails if current-state docs reintroduce pre-rework terms (nomic, Flask CLI,
-# VECTOR(768), llama3:8b). Point-in-time specs under docs/features/ are excluded —
-# they are historical records, not current-state docs.
+# Two checks:
+#  1. Fails if current-state docs reintroduce pre-rework terms (nomic, Flask CLI,
+#     VECTOR(768), llama3:8b). Point-in-time specs under docs/features/ are excluded —
+#     they are historical records, not current-state docs.
+#  2. Lints docs/features/*.md status lines: well-formed (4 stages) and monotonic
+#     (Spec → In Progress → Testing → Done, no later stage ticked before an earlier one).
 
 on:
   pull_request:
@@ -33,3 +36,37 @@ jobs:
             exit 1
           fi
           echo "OK — no stale pre-rework terms in current-state docs."
+      - name: Lint feature-spec status lines
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r f; do
+            [ "$(basename "$f")" = "README.md" ] && continue
+            line=$(grep -m1 -E '\[[ xX]\][[:space:]]*Spec' "$f" || true)
+            if [ -z "$line" ]; then
+              echo "::error file=$f::No status line found (expected '[ ] Spec  [ ] In Progress  [ ] Testing  [ ] Done')."
+              fail=1; continue
+            fi
+            for label in Spec "In Progress" Testing Done; do
+              echo "$line" | grep -qF "$label" || {
+                echo "::error file=$f::Status line missing stage '$label': $line"; fail=1; }
+            done
+            seq=$(echo "$line" | grep -oE '\[[ xX]\]' | sed -E 's/\[[xX]\]/1/; s/\[ \]/0/' | tr -d '\n')
+            if [ "${#seq}" -ne 4 ]; then
+              echo "::error file=$f::Status line must have exactly 4 checkboxes, found ${#seq}: $line"
+              fail=1; continue
+            fi
+            case "$seq" in
+              *01*)
+                echo "::error file=$f::Non-monotonic status — a later stage is ticked while an earlier one isn't (Spec → In Progress → Testing → Done): $line"
+                fail=1 ;;
+            esac
+          done < <(find . -path '*/docs/features/*.md' \
+                     -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/.git/*')
+          if [ "$fail" -ne 0 ]; then
+            echo
+            echo "Fix: every docs/features/*.md needs a well-formed status line, and stages must be"
+            echo "completed in order. The PR that ships a slice ticks its boxes up to the stage reached."
+            exit 1
+          fi
+          echo "OK — all feature-spec status lines are well-formed and monotonic."
