@@ -1,7 +1,7 @@
 # Feature: Parent/child retrieval (structure-aware) + wide candidate net
 
 ## Status
-[x] Spec  [x] In Progress  [x] Testing  [ ] Done
+[x] Spec  [x] In Progress  [x] Testing  [x] Done
 
 _Last updated: 2026-06-26 — **Testing passed; pending commit.** Code complete on
 `feat/parent-child-retrieval` across ai-rag-llm-client-v1 / ai-mcp-server-v1 /

@@ -1,7 +1,7 @@
 # Feature: Phase 2 — Containerize Ollama + GPU auto-detect + single-command setup
 
 ## Status
-[x] Spec  [ ] In Progress  [ ] Testing  [ ] Done
+[x] Spec  [x] In Progress  [x] Testing  [x] Done
 
 _Last updated: 2026-06-25 — spec authored ahead of implementation._
 

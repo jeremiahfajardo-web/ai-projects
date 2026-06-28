@@ -98,6 +98,13 @@ authoring new modules. Summary:
 - **Testing:** unit in `tests/unit/` (mock Ollama + DB); integration in `tests/integration/`
   (`httpx.AsyncClient` + uvicorn fixture, test DB); Vitest for composables/stores; target
   ≥80% coverage on `services/`. Run the suite before calling anything done.
+- **Spec status is part of Definition of Done:** the spec's `## Status` checkboxes
+  (`Spec → In Progress → Testing → Done`) advance **in the same PR that ships the slice** —
+  never reconciled in a later sweep. The PR that merges a feature ticks its box up to the
+  stage it reaches; a feature isn't "done" until its spec says `[x] Done`. Stages are
+  monotonic (no later box ticked before an earlier one). The `docs-stale-check` CI lints this
+  format + monotonicity, but the *truth* (is it really shipped?) is yours to set at merge — CI
+  can't judge it.
 
 ## Gotchas & Known Constraints
 
