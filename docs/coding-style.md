@@ -5,12 +5,11 @@ This is the **workspace-wide** style and commenting standard for every repo in t
 `ai-rag-llm-client-v1`). Each repo's `CLAUDE.md` links here for the full examples and
 keeps only a brief summary inline so the always-loaded context stays lean.
 
-These standards are **forward-looking** — they describe the conventions all new and
-refactored code follows under the local-intro-app direction (see
-[architecture.md](architecture.md) → *Active Direction* and the plan at
-`~/.claude/plans/optimized-mapping-harbor.md`). Where the current code predates a
-convention (e.g. the RAG client is still Flask until the FastAPI rewrite), match the
-target convention when you touch the file.
+These standards describe the conventions all new and refactored code follows under the
+local-intro-app direction (see [architecture.md](architecture.md) → *Rework (shipped)* and
+the plan at `~/.claude/plans/optimized-mapping-harbor.md`). The rework has shipped (both
+services are FastAPI now); where any older code still predates a convention, match the
+convention when you touch the file.
 
 ---
 
