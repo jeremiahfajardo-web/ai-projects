@@ -152,7 +152,7 @@ delete → memory_delete
 
 Permission tiers are cumulative: a `write` key can also call `read` tools.
 
-### Tool identity contract (decision — 2026-06-27, target; see spec)
+### Tool identity contract (decision — 2026-06-27, shipped; see spec)
 
 The MCP server is a **shared service**: the RAG client, `ai-n8n-v1`, and any future caller
 hit the same `/tools/*`. Caller **identity therefore travels one way for all of them — the
@@ -168,10 +168,12 @@ client-side in the RAG client (strip the param from the LLM schema + re-inject a
 That repairs the LLM path but leaves n8n and any other caller still sending `user_id` in the
 body, so the anomaly persists for the shared service. The root fix is server-side.
 
-Today most tools already follow this (handlers read `ctx.user_id`); the **memory tools**
-are the exception — they declare `user_id` (and `memory_summarize_session`: `session_id`) as
-required **body** fields and read `params.user_id`. Normalising those four to read `ctx`
-makes the contract uniform for the LLM, the RAG client, and n8n at once. Tracked in
+All tools now follow this (handlers read `ctx.user_id`). The **memory tools** were the last
+exception — they had declared `user_id` (and `memory_summarize_session`: `session_id`) as
+required **body** fields and read `params.user_id`; those four were normalised to read `ctx`,
+making the contract uniform for the LLM, the RAG client, and n8n at once. An absent
+`X-User-ID` on a memory call is **rejected** (user-scoped — see below), not defaulted. Shipped
+in `ai-mcp-server-v1/tools/memory.py`; see
 `ai-rag-llm-client-v1/docs/features/llm-tool-identity-injection.md`.
 
 Identity by tool relationship to data:
