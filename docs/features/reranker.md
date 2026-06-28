@@ -1,7 +1,13 @@
 # Feature: Cross-encoder reranker (precision stage over the wide candidate pool)
 
 ## Status
-[x] Spec  [ ] In Progress  [ ] Testing  [ ] Done
+[x] Spec  [x] In Progress  [ ] Testing  [ ] Done
+
+_Implementation note (2026-06-28): the **rag-client direct path** is built + unit-tested
+(`providers/reranker.py` + `services/rag._rerank_candidates`; FlashRank local default, flag-off by
+default, graceful RRF fallback). The **MCP `document_search` mirror is a fast-follow** (OQ #5) — until
+it lands, the agentic tool path is NOT reranked. Live latency smoke on the running stack still
+pending before flipping the default on._
 
 _Last updated: 2026-06-28 — initial draft + provider direction decided (config-switchable seam,
 default FlashRank/ONNX standalone, `ollama`/cloud selectable via `.env`). The follow-on reserved by
@@ -193,5 +199,7 @@ runtime artifact, pulled/loaded at startup — not persisted state.)
       "give me everything about X" queries want a second pass that reranks the *collapsed parents*.
 - [ ] **Default-on tier.** On by default everywhere, or GPU-on / CPU-flagged, pending the measured
       latency on the CPU tier.
-- [ ] **MCP `document_search`:** mirror the rerank step now (both paths agree) or fast-follow after
-      the rag-client path is validated.
+- [x] **MCP `document_search` — decided (2026-06-28): fast-follow.** The rag-client direct path
+      ships + is validated first; the MCP server gets a parallel reranker (its own module + `flashrank`
+      dep + `RAG_RERANK_*` config + tests, mirroring the duplicated retrieval functions) as the next
+      change. Until then the two paths diverge (direct = reranked, MCP tool = RRF order).
