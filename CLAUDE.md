@@ -105,6 +105,13 @@ authoring new modules. Summary:
   monotonic (no later box ticked before an earlier one). The `docs-stale-check` CI lints this
   format + monotonicity, but the *truth* (is it really shipped?) is yours to set at merge — CI
   can't judge it.
+- **Re-review the spec before marking Done (hard gate):** before flipping `[x] Done`, re-read
+  the whole spec top-to-bottom against the built code and **account for every item** — each
+  Acceptance Criterion and Open Question is either **checked off as completed**, or **left
+  unchecked with an inline note** stating *why* (deferred / out of scope / superseded), plus a
+  pointer to the follow-up if one exists. A live **smoke test** (its own spec section) must have
+  been performed and its result recorded. "Done" means *nothing in the spec is silently
+  unaddressed* — not merely that the happy path works.
 
 ## Gotchas & Known Constraints
 

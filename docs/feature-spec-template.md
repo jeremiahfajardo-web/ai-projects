@@ -79,5 +79,18 @@ If none, write "None.">
 - **Integration**: <real DB/Ollama scenario + expected result; httpx.AsyncClient>
 - **Frontend**: <Vitest assertions on component render / interactions>
 
+## Smoke Test (user-performed, on the running stack)
+A documented manual check so the live verification is traceable and repeatable — green
+pytest is not "done" (see CLAUDE.md: a live smoke precedes commit). Fill in concrete steps.
+- **Pre-reqs / config**: <env vars to set in `ai-infrastructure-v1/.env`, whether a
+  `docker compose up -d --build` is needed (new deps / code), any data to ingest first>
+- **Steps**: <numbered, copy-pasteable: the exact action(s) — e.g. run a query, hit an
+  endpoint, click a UI control>
+- **Expected / pass criteria**: <what proves it works — a log line to grep
+  (`docker logs -f <svc>`), a UI element/badge, a response field, a status code>
+- **Negative / fallback check**: <toggle the feature off or break a dependency; confirm
+  graceful degradation, not a crash>
+- **Result**: <user pastes outcome here: PASS/FAIL + notes/date — keep as the record>
+
 ## Open Questions
 - [ ] <Unresolved decisions needing input before implementation starts>
