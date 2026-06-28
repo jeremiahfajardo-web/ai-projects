@@ -3,11 +3,15 @@
 ## Status
 [x] Spec  [x] In Progress  [ ] Testing  [ ] Done
 
-_Implementation note (2026-06-28): the **rag-client direct path** is built + unit-tested
-(`providers/reranker.py` + `services/rag._rerank_candidates`; FlashRank local default, flag-off by
-default, graceful RRF fallback). The **MCP `document_search` mirror is a fast-follow** (OQ #5) — until
-it lands, the agentic tool path is NOT reranked. Live latency smoke on the running stack still
-pending before flipping the default on._
+_Implementation note (2026-06-28): built + unit-tested across **both retrieval paths** — the
+rag-client direct path (`providers/reranker.py` + `services/rag._rerank_candidates`) **and** the MCP
+`document_search` mirror (`ai-mcp-server-v1/reranker.py`, same seam). FlashRank local default,
+flag-off by default, graceful RRF fallback. `rerank_score` propagates through both `_collapse_to_parents`
+and is surfaced as a **UI badge** (`ResponsePanel.vue`). A **startup warmup health-check**
+(`warmup_reranker`) reports a bad `RAG_RERANK_MODEL` at boot without failing retrieval, and the
+per-call path logs a warning + falls back to RRF if the reranker becomes unavailable. Remaining before
+Done: **live latency smoke** on the running stack and the **default-on tier** decision (Docker was down
+this session, so no live run yet)._
 
 _Last updated: 2026-06-28 — initial draft + provider direction decided (config-switchable seam,
 default FlashRank/ONNX standalone, `ollama`/cloud selectable via `.env`). The follow-on reserved by
@@ -199,7 +203,8 @@ runtime artifact, pulled/loaded at startup — not persisted state.)
       "give me everything about X" queries want a second pass that reranks the *collapsed parents*.
 - [ ] **Default-on tier.** On by default everywhere, or GPU-on / CPU-flagged, pending the measured
       latency on the CPU tier.
-- [x] **MCP `document_search` — decided (2026-06-28): fast-follow.** The rag-client direct path
-      ships + is validated first; the MCP server gets a parallel reranker (its own module + `flashrank`
-      dep + `RAG_RERANK_*` config + tests, mirroring the duplicated retrieval functions) as the next
-      change. Until then the two paths diverge (direct = reranked, MCP tool = RRF order).
+- [x] **MCP `document_search` — DONE (2026-06-28): mirrored.** The MCP server got a parallel reranker
+      (`ai-mcp-server-v1/reranker.py` + `flashrank` dep + `RAG_RERANK_*` config + tests), wired into
+      `document_search` and propagating `rerank_score`. Single tool (config-gated), **not** a second
+      with/without-reranker tool — more tools worsen agentic tool-selection and rerank-vs-not is an
+      operator decision, not the LLM's. Both paths now agree.
