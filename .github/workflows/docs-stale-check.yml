@@ -1,0 +1,35 @@
+name: docs-stale-check
+
+# Fails if current-state docs reintroduce pre-rework terms (nomic, Flask CLI,
+# VECTOR(768), llama3:8b). Point-in-time specs under docs/features/ are excluded —
+# they are historical records, not current-state docs.
+
+on:
+  pull_request:
+    paths: ['**/*.md', '.github/workflows/docs-stale-check.yml']
+  push:
+    branches: [main]
+    paths: ['**/*.md', '.github/workflows/docs-stale-check.yml']
+
+jobs:
+  stale-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Grep current-state docs for pre-rework terms
+        run: |
+          set -euo pipefail
+          PATTERN='nomic|VECTOR\(768\)|flask run|flask db|llama3:8b'
+          hits=$(grep -rInE "$PATTERN" --include='*.md' \
+                   --exclude-dir=node_modules --exclude-dir=.venv \
+                   --exclude-dir=.git --exclude-dir=.pytest_cache --exclude-dir=dist \
+                   . | grep -vE '/docs/features/' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Stale pre-rework references found in current-state docs (see below)."
+            echo "$hits"
+            echo
+            echo "Fix: reword to the current stack, or — if this is a deliberate historical"
+            echo "reference — move it under docs/features/ (specs are excluded from this check)."
+            exit 1
+          fi
+          echo "OK — no stale pre-rework terms in current-state docs."
