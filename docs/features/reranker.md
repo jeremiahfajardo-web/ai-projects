@@ -12,10 +12,11 @@ and is surfaced as a **UI badge** (`ResponsePanel.vue`). A **startup warmup heal
 per-call path logs a warning + falls back to RRF if the reranker becomes unavailable._
 
 _**Done (2026-06-28):** unit suites green (rag-client 151, MCP 78); **live smoke test PASSED** by the
-user on the running stack (see Smoke Test section). Ships **disabled by default** (`RAG_RERANK_ENABLED=false`),
-purely additive. Three tuning Open Questions are intentionally **deferred, not blockers** (default-on tier,
-in-process-vs-container, rerank-children-vs-parents) — noted below; revisit when latency profiling /
-quality tuning is prioritised._
+user on the running stack (see Smoke Test section). **Default-on decided (2026-06-28)** after a CPU
+latency measurement (see Smoke Test): the **deployment defaults enable it** (`.env.example` +
+compose `RAG_RERANK_ENABLED:-true`); the code-level `Settings` hard-default stays `False` as a safe
+fallback for bare/standalone runs (and test stability). Two tuning Open Questions remain intentionally
+**deferred, not blockers** (in-process-vs-container, rerank-children-vs-parents) — noted below._
 
 _Last updated: 2026-06-28 — initial draft + provider direction decided (config-switchable seam,
 default FlashRank/ONNX standalone, `ollama`/cloud selectable via `.env`). The follow-on reserved by
@@ -58,10 +59,11 @@ the full question pushes the answer-bearing child to rank 1, so its parent secti
 - [x] **Graceful degradation:** if the reranker model is unavailable, errors, or times out, retrieval
       **falls back to RRF order**, logs a warning, and never fails the query (mirrors the MCP-down and
       keyword-zero-lexeme degradations already in the pipeline).
-- [x] **Latency budget:** an input cap (`RAG_RERANK_INPUT_K`) bounds worst-case cost, and the smoke
-      test confirmed acceptable interactive latency on the test box. *Note: precise CPU-tier latency
-      numbers are not yet recorded — deferred together with the **default-on tier** decision; the
-      feature ships OFF, so "record before default-on" is not yet triggered.*
+- [x] **Latency budget:** an input cap (`RAG_RERANK_INPUT_K`) bounds worst-case cost. **Measured
+      (2026-06-28, this CPU box, `ms-marco-MiniLM-L-12-v2`):** reranking **40 passages ≈ 650–700 ms
+      median 688 ms** per query; one-time model load ≈ 2 s at startup warmup. That's ~1–2% on top of
+      the CPU chat model's 30–90 s/response — negligible — which is why default-on is reasonable.
+      Levers if needed: lower `RAG_RERANK_INPUT_K`, or a smaller model (`ms-marco-TinyBERT-L-2-v2`).
 - [x] **All modes:** runs on whatever candidate list a mode produces (hybrid / semantic / keyword) —
       it reorders an existing list, independent of how the list was built.
 - [x] **Deterministic:** same `(query, candidates)` ⇒ same order (a cross-encoder is deterministic,
@@ -202,8 +204,9 @@ runtime artifact, pulled/loaded at startup — not persisted state.)
   retrieved chunks carry the `⇅ rerank` badge and are ordered by the cross-encoder score.
 - **Negative / fallback check:** `RAG_RERANK_ENABLED=false` (or a bad `RAG_RERANK_MODEL`) → query
   still answers in RRF order, no badge, with the documented warning on the bad-model path.
-- **Result:** **PASS** — user-verified on the running stack (2026-06-28). Precise CPU-tier latency
-  numbers not captured (deferred with the default-on decision; see Open Questions).
+- **Result:** **PASS** — user-verified on the running stack (2026-06-28). **CPU latency benchmark
+  (same hardware):** rerank 40 passages ≈ 688 ms median (model load ≈ 2 s, one-time at warmup) — see
+  Latency budget. Decision: **default-on** (negligible vs. local generation).
 
 ## Open Questions
 > _Done re-review (2026-06-28): the three unchecked OQs below are **deferred tuning decisions, not
@@ -221,8 +224,12 @@ runtime artifact, pulled/loaded at startup — not persisted state.)
       MCP server share one reranker. Lean toward a container if the model needs torch.
 - [ ] **Rerank children vs. parents (vs. two-stage).** Default: children. Evaluate whether holistic
       "give me everything about X" queries want a second pass that reranks the *collapsed parents*.
-- [ ] **Default-on tier.** On by default everywhere, or GPU-on / CPU-flagged, pending the measured
-      latency on the CPU tier.
+- [x] **Default-on tier — decided (2026-06-28): default ON.** CPU latency measured at ≈ 688 ms median
+      for 40 passages — ~1–2% on top of the CPU chat model's 30–90 s/response, so it's enabled by
+      default in the deployment (`.env.example` + compose `:-true`). The GPU tier wasn't measured (no
+      GPU box available), but the reranker is CPU-only ONNX regardless and the cost is small in
+      absolute terms, so on-by-default holds there too. Code `Settings` hard-default stays `False` as a
+      safe fallback for bare runs.
 - [x] **MCP `document_search` — DONE (2026-06-28): mirrored.** The MCP server got a parallel reranker
       (`ai-mcp-server-v1/reranker.py` + `flashrank` dep + `RAG_RERANK_*` config + tests), wired into
       `document_search` and propagating `rerank_score`. Single tool (config-gated), **not** a second
