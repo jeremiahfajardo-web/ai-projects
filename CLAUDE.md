@@ -54,7 +54,7 @@ a repo** — it is an image-based Docker Compose service defined in
 | Layer | Technology |
 |---|---|
 | Frontend | Vue 3 (Composition API) + Vite; design tokens; responsive (no PWA) |
-| Backend | Python 3.12 / **FastAPI** (ASGI, uvicorn) — both services |
+| Backend | Python 3.13 (mcp-server) / 3.12 (rag-client) / **FastAPI** (ASGI, uvicorn) |
 | Database | PostgreSQL 16 + pgvector (`VECTOR(1024)`, ivfflat) |
 | RAG retrieval | pgvector cosine + PostgreSQL BM25, merged via RRF (k=60); semantic/keyword/hybrid |
 | Embeddings | Ollama `mxbai-embed-large` (1024-dim), via a `providers/` seam |
@@ -69,7 +69,8 @@ Full standards (docstring templates, FastAPI/Vue/SQL conventions, the resolve-by
 soft-delete rules) live in **[docs/coding-style.md](docs/coding-style.md)** — pull it when
 authoring new modules. Summary:
 
-- Python 3.11+ with type hints; `black` (88) + `ruff`; `pytest`.
+- Python 3.12+ with type hints (target 3.13; rag-client on 3.12 pending a langchain
+  upgrade — see [docs/coding-style.md](docs/coding-style.md)); `black` (88) + `ruff`; `pytest`.
 - FastAPI app-factory + `lifespan` startup checks; Pydantic v2 schemas (`response_model=`).
 - Async by default; `Depends()` injection; raw SQL only for pgvector similarity.
 - Ollama I/O through the `providers/` seam — never scattered inline `httpx`.

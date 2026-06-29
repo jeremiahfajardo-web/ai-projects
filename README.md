@@ -96,7 +96,7 @@ POST /tools/web_crawl_and_store
 | Full-text search | PostgreSQL tsvector + GIN | Hybrid with RRF merge (k=60) |
 | RAG client backend | Python 3.12 / FastAPI | uvicorn (ASGI), asyncpg, Pydantic v2, httpx |
 | RAG client frontend | Vue 3 + Vite | Built SPA, responsive, design tokens, SSE streaming |
-| MCP tool server | Python 3.12 / FastAPI | asyncpg, 15 auto-discovered tools, tiered auth |
+| MCP tool server | Python 3.13 / FastAPI | asyncpg, 15 auto-discovered tools, tiered auth |
 | Workflows | n8n (isolated) | Bundled `ai-n8n-v1` for client automations |
 | Orchestration | Docker Compose | Bridge network, health checks, GPU-aware launcher |
 | Web search / scraping | Brave Search / Jina Reader | Optional, for MCP web tools |
