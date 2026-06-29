@@ -112,6 +112,13 @@ authoring new modules. Summary:
   pointer to the follow-up if one exists. A live **smoke test** (its own spec section) must have
   been performed and its result recorded. "Done" means *nothing in the spec is silently
   unaddressed* — not merely that the happy path works.
+- **Review/update memory before marking Done (hard gate):** in the same pass that flips
+  `[x] Done`, reconcile auto-memory (`~/.claude/projects/.../memory/` + `MEMORY.md`) against what
+  actually shipped. Any memory that described the feature as planned/unspecced/backlog must be
+  updated or retired so it states the shipped reality (spec name, what's live, what was deferred);
+  add a new memory for any non-obvious decision the spec doesn't already capture. Memory is
+  **not** allowed to lag a shipped feature — a stale "TODO/backlog" note that survives a merge is
+  a Done-gate miss, the same as an unchecked spec item.
 
 ## Gotchas & Known Constraints
 
