@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/lint-on-py-edit.ps1",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .claude/hooks/test-reminder-on-stop.ps1",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
