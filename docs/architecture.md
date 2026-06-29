@@ -456,6 +456,9 @@ and defeat the point of a shared tool server.
 > `app/services/rag.py` (`retrieve`) are parallel copies of the same logic — `_semantic_search`,
 > `_keyword_search`, `_merge_rrf`, `_collapse_to_parents`, constants (`RRF_K=60`, thresholds),
 > the reranker stage, and the returned dict shape. **Any retrieval change must land in both**, or
-> the primary (MCP) path and the local fallback silently diverge. Two concrete precedents: the
-> parent/child collapse (mirrored in both) and the cross-encoder **reranker** (added to both,
-> 2026-06-28). When you touch one, grep the other for the same function and mirror it.
+> the primary (MCP) path and the local fallback silently diverge. Three concrete precedents: the
+> parent/child collapse (mirrored in both), the cross-encoder **reranker** (added to both,
+> 2026-06-28), and the reranker **warmup hardening** (mirrored in both, 2026-06-29 — the FlashRank
+> model is now pre-baked into *both* service images so startup `warmup_reranker` loads it from disk:
+> no first-boot download/traceback, no first-query stall, no runtime network egress). When you touch
+> one, grep the other for the same function and mirror it.
