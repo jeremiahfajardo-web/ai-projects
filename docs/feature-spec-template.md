@@ -71,6 +71,13 @@ If none, write "None.">
 - <Condition>: <HTTP status, message, side effects>
 - <Condition>: <…>
 
+## Security Review
+Reviewed against [docs/security-checklist.md](security-checklist.md) — the canonical
+OWASP + LLM list with this stack's posture. Copy the checkbox skeleton from the bottom of
+that file and, for **every** item, either tick it (one line on *how*), mark
+`N/A — <why>`, or `deferred — <seam>`. No item may be left silently blank — this section
+is part of the Definition of Done (see CLAUDE.md). Paste the filled skeleton here.
+
 ## Out of Scope for This Feature
 - <Related things explicitly NOT in this ticket>
 

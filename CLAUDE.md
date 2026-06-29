@@ -112,6 +112,13 @@ authoring new modules. Summary:
   pointer to the follow-up if one exists. A live **smoke test** (its own spec section) must have
   been performed and its result recorded. "Done" means *nothing in the spec is silently
   unaddressed* — not merely that the happy path works.
+- **Security Review is part of Definition of Done (hard gate):** every spec carries a
+  `## Security Review` section filled against [docs/security-checklist.md](docs/security-checklist.md)
+  (canonical OWASP Top 10 + LLM Top 10, with this stack's posture). Before flipping `[x] Done`,
+  every checklist item must be **ticked** (with how), **`N/A — <why>`**, or **`deferred — <seam>`** —
+  none left silently blank, same rule as Acceptance Criteria. New outbound-request paths (A10 SSRF),
+  new MCP tools (LLM06 excessive agency), and any model output rendered in the UI (LLM05) get
+  explicit attention rather than a blanket N/A.
 - **Review/update memory before marking Done (hard gate):** in the same pass that flips
   `[x] Done`, reconcile auto-memory (`~/.claude/projects/.../memory/` + `MEMORY.md`) against what
   actually shipped. Any memory that described the feature as planned/unspecced/backlog must be
