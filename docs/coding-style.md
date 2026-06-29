@@ -97,9 +97,7 @@ getters/setters. Comments add information; they never restate the code in Englis
 
 ## Python / FastAPI Conventions
 
-- Python 3.12+ (containers: 3.13 mcp-server / 3.12 rag-client — rag-client 3.13 is
-  blocked by `langchain 0.2.x` pinning `numpy<2`, which has no 3.13 wheel; deferred to a
-  langchain 0.3 upgrade); **type hints required** on all signatures.
+- Python 3.13+ (3.13 in containers, both services); **type hints required** on all signatures.
 - Formatter: `black` (line length 88). Linter: `ruff`. Tests: `pytest`.
 - **App-factory + `lifespan`** pattern: `create_app()` builds the app; an async
   `lifespan` context manager runs startup verifications (DB pool, provider/Ollama
