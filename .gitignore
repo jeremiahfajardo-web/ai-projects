@@ -14,3 +14,6 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+# Claude Code — per-developer local config (may embed local creds/keys)
+.claude/settings.local.json
