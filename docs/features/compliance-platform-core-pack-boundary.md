@@ -1,9 +1,19 @@
 # Feature: Compliance Platform — Core / Pack / Instance boundary
 
 ## Status
-[ ] Spec  [ ] In Progress  [ ] Testing  [ ] Done
+[x] Spec  [x] In Progress  [x] Testing  [ ] Done
 
-_Last updated: 2026-06-29 — aligned to the current feature-spec template (added Security Review
+_Last updated: 2026-06-29 — **Pack loader seam shipped** (the boundary's directly-buildable
+artifact): `pack_loader.py` (Pydantic Pack schema + fail-fast `load`/`load_active` + `introspection`)
+in ai-mcp-server-v1, Plugin-SDK extended to discover a Pack's `tools/`, `GET /pack` endpoint +
+lifespan/boot wiring, two reference Packs (`ca-homecare-onboarding` full + `widget-certification`
+thin) under `ai-infrastructure-v1/packs/` (read-only `/packs` mount + `PACK_ID`), and the
+no-vertical-vocab grep invariant — all unit/integration tested (136 green) **and the live Smoke Test
+passed** (see its section). **Held at `Testing`, not `Done`:** the engine-level invariants
+(record-authority postures, no-hard-delete, traceability, redundancy, orchestration runner, concrete
+schema) remain `deferred` to their sibling specs — the boundary is proven, but not every criterion it
+*governs* is built, so Done waits on those. See the per-item accounting below. Earlier on 2026-06-29 —
+aligned to the current feature-spec template (added Security Review
 + standalone Smoke Test sections, reordered to match); added Core integrity/tamper-detection
 coverage (Acceptance Criterion + Edge Case + two Open Questions on integrity & support boundary)
 a Seams forward-dependency on sealed-image Core distribution, and a **Record Authority** section
@@ -37,28 +47,38 @@ this spec adds the *declarative* layer above it.
 These are design invariants — each is independently verifiable (lint/test/audit), and together
 they are the whole point of the spec.
 
-- [ ] **Zero core edits per vertical.** Standing up a brand-new vertical (its own document list,
+- [x] **Zero core edits per vertical.** Standing up a brand-new vertical (its own document list,
       rules, roles, branding) requires **no diff** to the Core repos — only a new `packs/<id>/`
-      bundle and an Instance config. Verifiable by building a second reference pack with the
-      Core repos at a frozen commit.
-- [ ] **No vertical vocabulary in Core.** Core source contains no domain-specific identifiers —
+      bundle and an Instance config. _Proven: the thin `widget-certification` pack re-skins the
+      engine ("Technician"/`safety_cert`) with zero Core change; `test_boundary_invariants.py`
+      loads both packs against the same Core in-process._
+- [x] **No vertical vocabulary in Core.** Core source contains no domain-specific identifiers —
       e.g. the literal `caregiver`, `CDSS`, `live scan`, `HCA` do not appear in Core code or
       schema (they are Pack-supplied labels). The compliance subject is a generic `subject`;
-      the Pack labels it "Caregiver" / "Driver" / "Customer". Verifiable by a grep-based test.
-- [ ] **A Pack is declarative + additive.** A Pack consists of (a) declarative config files
+      the Pack labels it "Caregiver" / "Driver" / "Customer". _Enforced by the
+      `test_no_vertical_vocabulary_in_core` grep invariant (caught + scrubbed example vocabulary
+      from Core docstrings during the build). Schema-side grep is the compliance-schema spec's CI._
+- [x] **A Pack is declarative + additive.** A Pack consists of (a) declarative config files
       (requirements, rules, reminder schedule, roles, templates, taxonomy, KB manifest, branding)
-      and (b) **optional** Plugin-SDK tool files. A Pack carries **no patches to Core**. A Pack
-      that needs genuinely new *engine* behaviour is a signal to extend Core generically, not to
-      fork — captured as an Open Question / Core change, never absorbed into the Pack as a hack.
-- [ ] **Versioned compatibility.** A Pack manifest declares the Core version range it targets
+      and (b) **optional** Plugin-SDK tool files. A Pack carries **no patches to Core**. _Proven:
+      `pack_loader` parses only declarative YAML + enumerates `tools/` via the existing Plugin SDK;
+      the `ca-homecare-onboarding` pack ships a `tools/hca_registry_lookup.py` with no Core edit._
+      A Pack that needs genuinely new *engine* behaviour is a signal to extend Core generically, not
+      to fork — captured as an Open Question / Core change, never absorbed into the Pack as a hack.
+- [x] **Versioned compatibility.** A Pack manifest declares the Core version range it targets
       (`requires_core: ">=1.0,<2.0"`); Core validates this at load and refuses an incompatible
-      Pack with a clear error rather than failing deep in a workflow.
-- [ ] **Single-tenant per deployment.** One Instance = one customer org on their own box/data.
+      Pack with a clear error rather than failing deep in a workflow. _Built: `CORE_VERSION="1.0.0"`
+      checked via `packaging.SpecifierSet`; out-of-range packs raise `PackValidationError`
+      (`test_out_of_range_requires_core`)._
+- [x] **Single-tenant per deployment.** One Instance = one customer org on their own box/data.
       The boundary does **not** introduce SaaS multi-tenancy; intra-org roles are sufficient.
       (This both simplifies the build and reinforces the local/private selling point.) Cross-client
       isolation is therefore a **physical/deployment** boundary — no shared DB, no cross-client
-      query path; `user_id` is intra-org only, never a client separator.
-- [ ] **Core integrity is detectable.** Core ships as a **sealed, versioned image** (e.g.
+      query path; `user_id` is intra-org only, never a client separator. _Held: the loader adds no
+      tenancy concept; one `PACK_ID` per deployment._
+- [ ] **Core integrity is detectable.** `deferred — compliance-platform-core-release-distribution.md`.
+      The loader is the version-gate half (`requires_core`); the sealed-image digest self-report is
+      the parked distribution spec. Core ships as a **sealed, versioned image** (e.g.
       `core:1.4.2`), not as source, and **self-reports its image digest + version at boot**
       (extending the config-self-check guard). Drift from the published digest is detectable on
       upgrade or support. We do not *prevent* a client editing their own box (impossible for
@@ -66,35 +86,51 @@ they are the whole point of the spec.
       Instance), **detect** it (digest mismatch), and place it **out of support** (see Open
       Questions). The Pack model removes the *reason* to fork Core, making such edits an anomaly,
       not the operating mode.
-- [ ] **Decoupled — both record-authority postures supported.** The app runs **decoupled** from
+- [ ] **Decoupled — both record-authority postures supported.** `deferred — record-authority
+      source/sink tools (downstream MCP-layer spec)`. The boundary establishes the seam location
+      (MCP layer) and posture-as-Instance-config; building the Mode A/B source/sink tools is a
+      sibling spec. The app runs **decoupled** from
       the client's system of record, automating their workflow while they keep audit
       accountability. Two postures select per Instance behind a Core seam: **Mode A
       engagement-only (default + the pitch)** — client holds the SoR, the app works on a mutable
       copy and parks tamper-evident outputs for their systems to retain; **Mode B full custody
       (opt-in)** — the app is the SoR. Switching posture requires **no Core edit**.
-- [ ] **No hard deletes.** No code path hard-deletes any record in either posture; everything is
+- [ ] **No hard deletes.** `deferred — compliance-schema-mvp-wedge.md`. The schema mandates
+      `deleted_at` + append-only `audit_log`; no DB tables exist yet in this seam. No code path
+      hard-deletes any record in either posture; everything is
       soft-deleted (`deleted_at`) and retained, history append-only. A lawful-erasure obligation
       is met by redaction / crypto-shred-with-tombstone, never a destructive `DELETE` (see Open
       Questions).
-- [ ] **Full action traceability (who / why / when / what).** Every state-changing action — human
+- [ ] **Full action traceability (who / why / when / what).** `deferred — compliance-schema-mvp-wedge.md`
+      (the `audit_log` build) + the auth seam (A07) for legally-meaningful *who*. Every
+      state-changing action — human
       **or** AI-initiated — writes an attributed audit entry: initiating actor, reason (the
       trigger/justification), timestamp, and the entity/requirement touched. AI-automated actions
       are as traceable and explainable as human ones.
-- [ ] **Built for redundancy.** Neither the working copy nor the parked handoff stream is a single
-      point of loss; the data and the output handoff are redundant.
-- [ ] **Pluggable orchestration; invariants enforced beneath it.** Workflow orchestration is a
+- [ ] **Built for redundancy.** `deferred — record-authority + distribution specs`. An operational
+      property of the working copy + parked handoff, owned where those are built. Neither the
+      working copy nor the parked handoff stream is a single point of loss.
+- [~] **Pluggable orchestration; invariants enforced beneath it.** _Seam established, runner not
+      built (`deferred — orchestration-runner interface spec`)._ The loader makes a Pack's `tools/`
+      (incl. a future custom-code runner) ride Core's tool layer; the runner interface + a custom
+      runner are downstream. Workflow orchestration is a
       swappable backend behind a Core seam — **n8n (declarative, default) or a custom-code runner
       plugin** — selected per Pack with **no Core edit**, all backends sharing the same MCP tools.
       Whichever backend runs, it goes **through Core's enforced primitives**, so no-hard-delete,
       traceability, and the record-authority handoff **cannot be bypassed** by a Pack's runner or
       tools. Verifiable: a custom-code runner cannot hard-delete or skip the audit trail.
-- [ ] **Reference pack proves the model.** The CA home-care onboarding pack
+- [x] **Reference pack proves the model.** The CA home-care onboarding pack
       (`packs/ca-homecare-onboarding/`) is authored entirely within the boundary and is the
       first consumer; a deliberately different second pack (even a thin one) is built to prove
-      the seam is real, not theoretical.
-- [ ] **Load-time validation, fail fast.** A malformed Pack (bad schema, dangling requirement
+      the seam is real, not theoretical. _Both shipped under `ai-infrastructure-v1/packs/`; the
+      thin `widget-certification` pack is the proving second vertical._
+- [x] **Load-time validation, fail fast.** A malformed Pack (bad schema, dangling requirement
       reference, unknown role in an approval chain, incompatible core version) is rejected at
-      startup with a precise message; a partially-valid Pack never half-loads.
+      startup with a precise message; a partially-valid Pack never half-loads. _Built +
+      tested: `test_pack_loader.py` covers each malformed case (bad YAML, out-of-range
+      `requires_core`, dangling completion-gate/reminder-role/escalation/approval refs, unknown
+      role, duplicate id, expirable-without-validity) → precise `PackValidationError`; nothing
+      partially registers._
 
 ## Affected Repos / Surfaces
 This boundary cross-cuts the stack; the spec defines *where each responsibility lives*, not the
@@ -366,6 +402,7 @@ seam (A01).
   boundary + fail-fast Pack loader prevent the N-repo divergence that makes reg fixes unsafe.
 - [x] **A05 Security Misconfiguration** — Load-time validation rejects malformed/partial Packs
   and out-of-range `requires_core` with a precise error at startup; a Pack never half-loads.
+  _Built: `pack_loader.load()` + `test_pack_loader.py` (every malformed case → `PackValidationError`)._
 - [ ] **A06 Vulnerable & Outdated Components** — `deferred — per-engine build`. A Pack's
   optional `tools/` are code and inherit the pinned-deps + reviewed-image rules when built.
 - [ ] **A07 Identification & Authentication Failures** — `deferred — auth seam exists`.
@@ -377,7 +414,9 @@ seam (A01).
   Pack's `tools/` ride the existing Plugin-SDK auto-discovery — only load Packs from a trusted
   catalog (our `packs/`/future `ai-packs`), never customer-supplied unreviewed code. A custom-code
   **orchestration runner** (the n8n alternative) is the largest such surface — same rule: reviewed
-  catalog only, always a Pack (Resolved Decision #5), pinned via `requires_core`.
+  catalog only, always a Pack (Resolved Decision #5), pinned via `requires_core`. _Built: `packs/`
+  is mounted **read-only** (`/packs:ro`) so Core never writes a Pack; pack-tool name collisions with
+  Core tools fail fast, and a broken pack tool fails the whole Pack load (`test_pack_tools.py`)._
 - [x] **A09 Security Logging & Monitoring Failures** — This spec elevates **actor-attributed
   traceability** (who / why / when / what, append-only, **no hard delete**) to a product invariant
   (see Acceptance Criteria + Record Authority). The concrete log schema + enforcement is the
@@ -454,7 +493,17 @@ recorded here so the boundary's proof-of-concept is traceable when that slice sh
 - **Negative / fallback check**: mount a malformed Pack (dangling `requirement_id`, unknown role,
   or out-of-range `requires_core`) → startup **fails fast** with a precise message naming the
   offending reference; the Pack never half-loads.
-- **Result**: _pending — boundary spec; to be recorded when the loader slice ships._
+- **Result**: ✅ **PASS — live smoke run on the running stack 2026-06-29.** Automated proof green
+  (136 tests). Live: rebuilt + recreated `ai-mcp-server-v1` with `PACK_ID=ca-homecare-onboarding` —
+  boot log `Loaded Pack 'ca-homecare-onboarding' v1.0.0 (subject=Caregiver, 6 requirement(s),
+  tools=yes)`; `GET /pack` → `status: valid`, `subject_label: Caregiver`, correct requirements; the
+  Pack tool `hca_registry_lookup` appears in `GET /tools` (16 tools). Swapped to
+  `PACK_ID=widget-certification` + force-recreate → `GET /pack` re-skinned to `Technician` /
+  `safety_cert`, roles `[Technician, Supervisor]`, and `hca_registry_lookup` deregistered — **zero
+  Core diff**. Negative: a temp pack with a dangling `completion_gates: [ghost_requirement]` →
+  container **failed fast**, never healthy (restart-looped) with the precise log
+  `PackValidationError: Pack '_smoke-broken': workflow.completion_gates references unknown
+  requirement id 'ghost_requirement'`; never half-loaded. Stack restored to the ca-homecare default._
 
 ## Resolved Decisions (2026-06-26)
 1. **Workflow state machine:** ✅ **Fixed lifecycle in Core (Not Sent → … → Filed); Pack supplies
@@ -483,12 +532,17 @@ recorded here so the boundary's proof-of-concept is traceable when that slice sh
    choice over a Core seam, and runs above Core's enforced invariants (see Seams).
 
 ## Open Questions
-- [ ] **Profile field schema depth.** How far does the Pack-declared `subject` field schema go
-      before it becomes a form-builder? Cap it for v1.
+- [x] **Profile field schema depth.** _v1 cap shipped: `SubjectSchema` allows ≤ 20 `profile_fields`,
+      each a `{name, label, type∈{text,date,bool,number,email}, required}` — enough for a subject
+      profile, not an open-ended form-builder. `test_profile_field_cap` enforces it. Revisit if a
+      real vertical needs richer field types._
 - [ ] **e-signature** ownership — Core capability vs. Pack-configured external provider — and
       whether it must be local to honour the privacy pitch.
-- [ ] **First non-home-care vertical** to use as the proving "second pack" (even a thin one),
-      so the seam is validated against real difference, not a toy.
+- [~] **First non-home-care vertical** to use as the proving "second pack" (even a thin one),
+      so the seam is validated against real difference, not a toy. _Partially: a thin
+      `widget-certification` pack proves the re-skin mechanically (different subject/requirement/role,
+      zero Core diff). A **real** regulated second vertical (DOT driver files / KYC) to validate
+      against genuine domain difference is still open — the toy proves the seam, not the value._
 - [ ] **Core versioning & upgrade delivery** to deployed Instances (image tags + `requires_core`
       gate — define the mechanism before customer #2).
 - [ ] **Core integrity / tamper detection mechanism** — confirm sealed-image distribution + the
