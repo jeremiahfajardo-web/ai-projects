@@ -67,7 +67,8 @@ offline client unable to reach a registry, downgrade attempts._
 _Not yet filled — parked stub at `[ ] Spec`. Must be completed against
 [docs/security-checklist.md](../security-checklist.md) before this advances past Spec. Headline
 items it will own: **A08 Software & Data Integrity Failures** (the whole point — verified,
-unmodified Core builds) and **LLM03 Supply Chain** (image provenance/signing)._
+unmodified Core builds), **LLM03 Supply Chain** (image provenance/signing), and **A02
+Cryptographic Failures** (Instance-secret handling on the client host — see Open Questions)._
 
 ## Out of Scope for This Feature
 - The Core/Pack/Instance boundary itself (the parent
@@ -97,3 +98,13 @@ upgrade replaces an in-place-modified Core (digest returns to published)._
       client verify a signature in addition to the digest?
 - [ ] **Licensing / support-boundary tie-in.** Cross-references the boundary spec's
       support/warranty Open Question (support covers only the unmodified published digest).
+- [ ] **Instance-secret handling on the client host.** All per-customer secrets — DB role
+      passwords (`RAG_DB_PASSWORD`/`MCP_DB_PASSWORD`), mailbox creds, storage paths, any API keys —
+      are **Instance** `.env`/volume, **not** Core, and **differ per customer** (the generic
+      `rag_user`/`mcp_user` role *names* are Core; only the passwords vary). Open: how the
+      deployment keeps those secrets **visible only to the customer's admin staff** — `.env` file
+      permissions, who can `docker exec`/read container env on the host, and whether to use Docker
+      secrets / a secret store rather than a plaintext `.env`. Tie-in: a client editing/reading
+      their own box is *contained* (single-tenant) but the bar is that routine staff can't read
+      credentials without the admin granting host access. (Pairs with the boundary spec's A02 +
+      single-tenant isolation.)
