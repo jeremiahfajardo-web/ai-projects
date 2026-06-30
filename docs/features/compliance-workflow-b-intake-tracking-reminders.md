@@ -20,9 +20,11 @@ read-side is [compliance-workflow-c-audit-readiness-dashboard.md](compliance-wor
 
 ## Slice Plan
 B is delivered in dependency order; each slice is its own BE-before-FE build + PR:
-1. **[Built on branch — unit+route tests + live smoke green] Create subject → materialize checklist +
-   audit** (AC #1, #6, #7) — the write-through-Core foundation. Core tool `compliance_create_subject`
-   + `POST /api/subjects`. No DB change. FE deferred (BE-before-FE). Pending merge.
+1. **[DONE — BE+FE merged, live smoke green] Create subject → materialize checklist + audit**
+   (AC #1, #6, #7) — the write-through-Core foundation. Core tool `compliance_create_subject` +
+   `POST /api/subjects`; intake **FE** is a generic Vue form rendered from the active Pack's
+   `subject_fields` (new `GET /api/pack` proxy + `introspection.subject_fields`), `/intake` route.
+   No DB change.
 2. **[ ] Record submission → advance status + `expires_at`** (AC #2, #3) — adds the additive
    `submissions.status` CHECK.
 3. **[ ] Human status transitions + computed subject-status rollup** (AC #4, #6).
@@ -291,8 +293,13 @@ ticked (with how), or `N/A — <why>`, or `deferred — <seam>`.
   (`actor_kind=human`, reason, `detail={pack_id, requirement_count:43}`). Negatives: unknown profile
   field and missing-required-field both → **`422`, nothing written** (subjects count unchanged);
   `rag_user` `DELETE FROM audit_log` → **permission denied** (append-only holds at the privilege
-  level). _Steps 2–4 (submission/transition/reminder) pending their slices._ A fresh-boot fix was
-  needed en route — see note below. _<remaining steps fill as slices 2–4 ship>_
+  level). **Intake FE (added 2026-06-30):** `/intake` renders a generic Vue form from the active
+  Pack's `subject_fields` (Caregiver: 8 fields), posts `POST /api/subjects`, and shows the
+  materialized 43-item checklist; verified live through its real endpoints (`GET /api/pack` exposes
+  `subject_fields`; create returns the checklist; bad profile → `422`) + the store's Vitest unit
+  tests — a browser DOM click-through was not automated (no headless browser available). _Steps 2–4
+  (submission/transition/reminder) pending their slices._ A fresh-boot fix was needed en route — see
+  note below. _<remaining steps fill as slices 2–4 ship>_
 
 > **Fresh-boot fix (shipped with Slice 1, ai-mcp-server-v1):** the clean rebuild surfaced a latent
 > first-run bug — the MCP server's corpus-provenance self-check (`config_check.py`) queried
