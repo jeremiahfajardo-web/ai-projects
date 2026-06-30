@@ -25,8 +25,14 @@ B is delivered in dependency order; each slice is its own BE-before-FE build + P
    `POST /api/subjects`; intake **FE** is a generic Vue form rendered from the active Pack's
    `subject_fields` (new `GET /api/pack` proxy + `introspection.subject_fields`), `/intake` route.
    No DB change.
-2. **[ ] Record submission → advance status + `expires_at`** (AC #2, #3) — adds the additive
-   `submissions.status` CHECK.
+2. **[DONE — BE+FE merged, live smoke green] Record submission → advance status + `expires_at`**
+   (AC #2, #3) — Core tool `compliance_record_submission` + `POST /api/subjects/{id}/submissions`;
+   inline "Record" control on the intake checklist (records against the just-created subject —
+   loading an existing subject by id is Workflow C). Adds the additive `submissions.status`
+   CHECK (`received/accepted/rejected`, default `received`) in ai-database-v1. A submission moves a
+   requirement from a pre-receipt state to `in_progress` (never regresses a later state), sets
+   `expires_at = received + Pack validity_days` for expirable items, and writes
+   `submission_received` (+ `status_changed` when it moves) audit rows.
 3. **[ ] Human status transitions + computed subject-status rollup** (AC #4, #6).
 4. **[ ] Reminder engine + n8n cadence** (AC #5) — adds the additive `reminders.channel` CHECK.
 
@@ -297,9 +303,14 @@ ticked (with how), or `N/A — <why>`, or `deferred — <seam>`.
   Pack's `subject_fields` (Caregiver: 8 fields), posts `POST /api/subjects`, and shows the
   materialized 43-item checklist; verified live through its real endpoints (`GET /api/pack` exposes
   `subject_fields`; create returns the checklist; bad profile → `422`) + the store's Vitest unit
-  tests — a browser DOM click-through was not automated (no headless browser available). _Steps 2–4
-  (submission/transition/reminder) pending their slices._ A fresh-boot fix was needed en route — see
-  note below. _<remaining steps fill as slices 2–4 ship>_
+  tests — a browser DOM click-through was not automated (no headless browser available).
+  **Step 2 (record submission) — Slice 2, PASS 2026-06-30** (fresh rebuild incl. the new
+  `submissions.status` CHECK): recorded a submission for `tb_test` (expirable 365d) → requirement
+  advanced `not_sent → in_progress`, `expires_at = 2027-06-30`, submission `received`, audit rows
+  `submission_received` + `status_changed`; a non-expirable item (`i9`) → `in_progress`/no expiry;
+  duplicate submission allowed (count → 2). Negatives: unknown requirement → `422`, bad source →
+  `422`, missing subject → `404`, all writing nothing. _Steps 3–4 (transition/reminder) pending._ A
+  fresh-boot fix was needed en route — see note below. _<remaining steps fill as slices 3–4 ship>_
 
 > **Fresh-boot fix (shipped with Slice 1, ai-mcp-server-v1):** the clean rebuild surfaced a latent
 > first-run bug — the MCP server's corpus-provenance self-check (`config_check.py`) queried
