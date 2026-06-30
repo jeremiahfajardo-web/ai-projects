@@ -1,13 +1,32 @@
 # Feature: Workflow B — Intake, Tracking & Reminders
 
 ## Status
-[x] Spec  [ ] In Progress  [ ] Testing  [ ] Done
+[x] Spec  [x] In Progress  [ ] Testing  [ ] Done
 
-_Last updated: 2026-06-29 — initial authored draft. The **write-side** wedge workflow: create a
+_Last updated: 2026-06-30 — **In Progress, Slice 1 (create-subject) backend built.** This feature
+is being shipped in vertical slices (see [Slice Plan](#slice-plan)). **Slice 1 = AC #1/#6/#7**
+(create a subject under the active Pack → materialize one `requirement_status` per declared
+requirement → `subject_created` audit row, atomically): shipped as the Core MCP tool
+`compliance_create_subject` (ai-mcp-server-v1 `tools/compliance.py`) + the `POST /api/subjects` BE
+route that proxies it (ai-rag-llm-client-v1). Unit + route tests green (mcp-server 145, rag-client
+190); **live smoke + FE pending** (BE-before-FE gate — no intake UI this slice). Slices 2–4
+(submissions, transitions, reminders) not yet built._
+
+_2026-06-29 — initial authored draft. The **write-side** wedge workflow: create a
 subject, record received documents, advance requirement status, and drive reminders. Consumes the
 schema from [compliance-schema-mvp-wedge.md](compliance-schema-mvp-wedge.md); governed by
 [compliance-platform-core-pack-boundary.md](compliance-platform-core-pack-boundary.md). Paired
 read-side is [compliance-workflow-c-audit-readiness-dashboard.md](compliance-workflow-c-audit-readiness-dashboard.md)._
+
+## Slice Plan
+B is delivered in dependency order; each slice is its own BE-before-FE build + PR:
+1. **[Built on branch — unit+route tests + live smoke green] Create subject → materialize checklist +
+   audit** (AC #1, #6, #7) — the write-through-Core foundation. Core tool `compliance_create_subject`
+   + `POST /api/subjects`. No DB change. FE deferred (BE-before-FE). Pending merge.
+2. **[ ] Record submission → advance status + `expires_at`** (AC #2, #3) — adds the additive
+   `submissions.status` CHECK.
+3. **[ ] Human status transitions + computed subject-status rollup** (AC #4, #6).
+4. **[ ] Reminder engine + n8n cadence** (AC #5) — adds the additive `reminders.channel` CHECK.
 
 ## Problem Statement
 The wedge sells on three workflows: **A** policy assistant (RAG, built), **B** intake + tracking +
@@ -265,7 +284,22 @@ ticked (with how), or `N/A — <why>`, or `deferred — <seam>`.
   subject status reads as a rollup of its requirements.
 - **Negative / fallback check**: submit an unknown `requirement_id` → `422`, nothing written; stop SMTP
   and run reminders → logged error, workflow survives, no false `reminders` row.
-- **Result**: _<pending — fill when built>_
+- **Result**: **Slice 1 (create-subject) — PASS, 2026-06-30** (clean rebuild: wiped `E:/Database`,
+  rebuilt all images, fresh `init.sql`). `POST /api/subjects` with a Caregiver profile under
+  `PACK_ID=ca-homecare-onboarding` → `200`, materialized **exactly 43 `requirement_status` rows**
+  (= Pack requirement count), all `not_sent`, + one attributed `subject_created` `audit_log` row
+  (`actor_kind=human`, reason, `detail={pack_id, requirement_count:43}`). Negatives: unknown profile
+  field and missing-required-field both → **`422`, nothing written** (subjects count unchanged);
+  `rag_user` `DELETE FROM audit_log` → **permission denied** (append-only holds at the privilege
+  level). _Steps 2–4 (submission/transition/reminder) pending their slices._ A fresh-boot fix was
+  needed en route — see note below. _<remaining steps fill as slices 2–4 ship>_
+
+> **Fresh-boot fix (shipped with Slice 1, ai-mcp-server-v1):** the clean rebuild surfaced a latent
+> first-run bug — the MCP server's corpus-provenance self-check (`config_check.py`) queried
+> `document_chunks` (a rag-client Alembic-owned table) and crashed boot with `UndefinedTableError`
+> on a brand-new DB, because the rag-client's migrations run *after* the MCP server boots. The check
+> now treats a not-yet-created corpus table as empty. This is a real bug for the "downloadable
+> truly-local intro app" first-run path, masked until the DB was wiped. Covered by a regression test.
 
 ## Open Questions
 - [ ] **Email intake mechanics** — how received-by-email documents reach B (a polled mailbox via n8n
