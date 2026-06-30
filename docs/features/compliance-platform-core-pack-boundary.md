@@ -95,14 +95,20 @@ they are the whole point of the spec.
       engagement-only (default + the pitch)** — client holds the SoR, the app works on a mutable
       copy and parks tamper-evident outputs for their systems to retain; **Mode B full custody
       (opt-in)** — the app is the SoR. Switching posture requires **no Core edit**.
-- [ ] **No hard deletes.** `deferred — compliance-schema-mvp-wedge.md`. The schema mandates
+- [ ] **No hard deletes.** `deferred — compliance-schema-mvp-wedge.md` _(design now filled in that
+      spec: soft-delete `deleted_at` everywhere, `audit_log` append-only enforced by
+      `REVOKE UPDATE, DELETE` in-migration, a privileged maintenance role reserved for lawful
+      erasure — build pending)._ The schema mandates
       `deleted_at` + append-only `audit_log`; no DB tables exist yet in this seam. No code path
       hard-deletes any record in either posture; everything is
       soft-deleted (`deleted_at`) and retained, history append-only. A lawful-erasure obligation
       is met by redaction / crypto-shred-with-tombstone, never a destructive `DELETE` (see Open
       Questions).
 - [ ] **Full action traceability (who / why / when / what).** `deferred — compliance-schema-mvp-wedge.md`
-      (the `audit_log` build) + the auth seam (A07) for legally-meaningful *who*. Every
+      (the `audit_log` build) + the auth seam (A07) for legally-meaningful *who*. _(Concrete
+      who/why/when/what shape now specified there: `actor` + `actor_kind` (human/ai/system), required
+      `reason`, `created_at`, `event_type` + `subject_id`/`requirement_id` target, AI authorizing
+      user + trigger in `detail` — build pending.)_ Every
       state-changing action — human
       **or** AI-initiated — writes an attributed audit entry: initiating actor, reason (the
       trigger/justification), timestamp, and the entity/requirement touched. AI-automated actions
