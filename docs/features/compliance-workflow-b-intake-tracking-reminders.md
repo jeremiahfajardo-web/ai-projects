@@ -1,10 +1,23 @@
 # Feature: Workflow B — Intake, Tracking & Reminders
 
 ## Status
-[x] Spec  [x] In Progress  [ ] Testing  [ ] Done
+[x] Spec  [x] In Progress  [x] Testing  [x] Done
 
-_Last updated: 2026-06-30 — **In Progress; Slices 1–3 shipped (BE+FE), live smoke green.** This
-feature is being shipped in vertical slices (see [Slice Plan](#slice-plan)). **Slice 3 = AC #4/#6**
+_Last updated: 2026-07-01 — **DONE. All four slices shipped; live smoke green.** Slice 4
+(reminder engine, AC #5) ships the Core tool `compliance_run_reminders` (ai-mcp-server-v1): one
+cadence pass over open packets that, for each subject whose gating requirements are still
+outstanding, sends any **due** reminder per the active Pack's `reminders.yaml` — a step is due when
+`today >= subject.created_at + offset_days` (the **intake clock**, the wedge's reference in lieu of a
+stored packet due date; see [Resolved Decisions](#resolved-decisions)). Each send emails a single
+Instance mailbox (`REMINDER_TO`, roles recorded but unresolved until the auth seam), writes one
+packet-level `reminders` row (`channel='email'`) + one attributed `reminder_sent` audit row, and is
+**idempotent** (at most one live reminder per `kind` per subject). A down channel logs + skips (no
+row), never crashing the run. Orchestration is the new **n8n workflow C** (`Schedule → the MCP tool`)
++ a bundled **MailHog** catcher. DB: the additive `reminders.channel` CHECK (`email/sms/in_app`).
+Tests: mcp-server **177** (7 new). **Live smoke PASS 2026-07-01** (see Smoke Test). This closes
+Workflow B — every Acceptance Criterion + Security Review item is now accounted for below._
+
+_2026-06-30 — Slices 1–3 shipped (BE+FE), live smoke green. **Slice 3 = AC #4/#6**
 (human status transitions + computed subject-status rollup): Core tool
 `compliance_transition_requirement` (ai-mcp-server-v1) moves a requirement along the fixed Core
 lifecycle **with a required reason**, stamping `completed_at` on terminal states and writing an
@@ -51,7 +64,15 @@ B is delivered in dependency order; each slice is its own BE-before-FE build + P
    gates** ([Resolved Decisions](#resolved-decisions)), recomputed on every requirement change
    (transition + submission-retrofit + at creation), writing a `subject_status_rollup` audit row when
    it moves. `GET /pack` also exposes `lifecycle`/`status_labels`/`completion_gates`. No DB change.
-4. **[ ] Reminder engine + n8n cadence** (AC #5) — adds the additive `reminders.channel` CHECK.
+4. **[DONE — BE + n8n merged, live smoke green] Reminder engine + n8n cadence** (AC #5) — Core tool
+   `compliance_run_reminders` (ai-mcp-server-v1): one cadence pass over open packets sends any **due**
+   reminder per the active Pack's cadence, keyed to the **intake clock** (`created_at + offset_days`),
+   to a single Instance mailbox; logs a packet-level `reminders` row + attributed `reminder_sent`
+   audit row per send; **idempotent** per `(subject, kind)`; a down channel logs + skips (no row).
+   Orchestration = **n8n workflow C** (`Schedule → the MCP tool`); a bundled **MailHog** catcher +
+   SMTP settings land in ai-infrastructure-v1. Adds the additive `reminders.channel` CHECK
+   (`email/sms/in_app`) in ai-database-v1. **No FE** (background cadence, no UI surface). No
+   rag-client change — n8n rides the MCP tool directly (boundary: orchestrators use Core tools).
 
 ## Problem Statement
 The wedge sells on three workflows: **A** policy assistant (RAG, built), **B** intake + tracking +
@@ -63,17 +84,17 @@ on. B must do this **generically** — reading the active Pack's requirement lis
 reminder cadence — so a new vertical needs no B code change, only a new Pack.
 
 ## Acceptance Criteria
-- [ ] **Create subject → materialize checklist.** Creating a subject under the active Pack inserts
-      the subject and **one `requirement_status` row per requirement the Pack declares**
+- [x] **Create subject → materialize checklist.** _(Slice 1.)_ Creating a subject under the active
+      Pack inserts the subject and **one `requirement_status` row per requirement the Pack declares**
       (`status='not_sent'`), in a single transaction, and writes a `subject_created` audit row.
-- [ ] **Record a submission.** A received document is recorded as a `submissions` row tied to its
+- [x] **Record a submission.** _(Slice 2.)_ A received document is recorded as a `submissions` row tied to its
       `subject_id` + Pack `requirement_id` + `source` (email/upload/in_person); the matching
       `requirement_status` advances and, if the requirement is expirable, `expires_at` is computed
       as *received date + Pack `validity_days`*. A `submission_received` (and `status_changed` when
       status moves) audit row is written.
-- [ ] **Unknown `requirement_id` is rejected.** A submission or status write naming a
-      `requirement_id` not declared by the active Pack fails fast with a clear error and writes
-      nothing — no drift between Pack config and stored data.
+- [x] **Unknown `requirement_id` is rejected.** _(Slices 2–3.)_ A submission or status write naming a
+      `requirement_id` not declared by the active Pack fails fast (`422`, `RequirementValidationError`)
+      and writes nothing — no drift between Pack config and stored data.
 - [x] **Human status transitions.** _(Slice 3.)_ An operator can move a requirement along the fixed
       Core lifecycle (e.g. `returned`, `needs_correction`, `approved`) with a **reason**; each
       transition writes an attributed audit row (who / why / when / what). The wedge sets status by
@@ -81,10 +102,17 @@ reminder cadence — so a new vertical needs no B code change, only a new Pack.
       `PATCH /api/subjects/{id}/requirements/{rid}`: reason is required (`422` if blank), `to_status`
       is validated against `CORE_LIFECYCLE` (`422` on an unknown state), terminal states stamp
       `completed_at` (cleared when a requirement is bounced back).
-- [ ] **Reminder engine.** For requirements that are due/overdue per the Pack's reminder cadence,
-      the system emits a reminder (`friendly` / `second` / `escalation`) to the Pack-declared
-      recipient role, logs one `reminders` row per reminder sent, and writes a `reminder_sent` audit
-      row. Reminders never hard-fail the workflow if a channel is down (logged, retried per cadence).
+- [x] **Reminder engine.** _(Slice 4.)_ For packets with outstanding gating items due/overdue per the
+      Pack's reminder cadence, the system emits a reminder (`friendly` / `second` / `escalation`),
+      recording the Pack-declared recipient role, logs one `reminders` row per reminder sent, and writes
+      a `reminder_sent` audit row. Reminders never hard-fail the workflow if a channel is down (logged,
+      no row written, retried next cadence tick). Shipped as `compliance_run_reminders` + n8n workflow
+      C. _Note: the reference Pack declares a **packet-level** cadence (no per-requirement offsets), so
+      reminders are packet-level (`requirement_id` NULL) — "for requirements that are due" is realized
+      as "for a packet with due, still-outstanding requirements" (see
+      [Resolved Decisions](#resolved-decisions)); a Pack that later declares per-requirement cadence is
+      a Pack change the engine reads generically. Kinds map from the Pack's richer `action` labels
+      (`second_notice`/`due` → `second`)._
 - [x] **Subject status is a computed rollup** _(Slice 3; resolves schema Open Q #1)_:
       `subjects.status` is derived from its `requirement_status` rows (not independently editable), so
       C never disagrees with the underlying checklist. Implemented as the **weakest-link rollup over
@@ -92,10 +120,15 @@ reminder cadence — so a new vertical needs no B code change, only a new Pack.
       every requirement change — at subject creation, on submission receipt (retrofit into Slice 2's
       tool), and on a human transition — writing a `subject_status_rollup` audit row when it moves. No
       route sets `subjects.status` directly.
-- [ ] **Generic / no vertical vocabulary.** B reads requirement ids, labels, cadence, and roles from
-      the active Pack; no requirement name, role, or vertical word is hard-coded in B.
-- [ ] **Ownership + audit on every write.** Every write stamps `user_id` from `get_current_user()`;
-      every state change appends an `audit_log` row; nothing is hard-deleted.
+- [x] **Generic / no vertical vocabulary.** _(All slices.)_ B reads requirement ids, labels, cadence,
+      status labels, and roles from the active Pack; no requirement name, role, or vertical word is
+      hard-coded in B. Verified in smoke: the reminder emails carried **Pack-supplied** labels/roles
+      (`CA Home-Care Caregiver Onboarding`, `Caregiver`) with no B code change.
+- [x] **Ownership + audit on every write.** _(All slices.)_ Every write stamps `user_id` from the
+      `get_current_user()` seam (reminders included: `actor_kind='system'`, actor = authorizing user);
+      every state change appends an `audit_log` row (`subject_created` / `submission_received` /
+      `status_changed` / `subject_status_rollup` / `reminder_sent`); nothing is hard-deleted, and the
+      append-only `audit_log` privilege holds (verified across slices).
 
 ## Resolved Decisions
 - **Subject-status rollup rule (AC #6) = weakest link over the completion gates** _(Slice 3)_. The
@@ -111,6 +144,31 @@ reminder cadence — so a new vertical needs no B code change, only a new Pack.
   computed by Core on every requirement-status change and is never settable directly by a route
   (chosen over "gates-approved ⇒ approved" two-state and "weakest over *all* requirements"
   alternatives, which either hid intermediate states or let non-gating items block the headline).
+- **Reminder timing basis = the intake clock (`created_at + offset_days`)** _(Slice 4)_. The Pack
+  cadence offsets presuppose a reference date, but the wedge schema stores no packet/requirement due
+  date. The wedge measures offsets from `subject.created_at` (a step is due when `today >= created_at
+  + offset_days`): simple, deterministic, demoable, and enough to drive the cadence off a real event
+  (intake). A stored **packet due date** (offsets as "before/after due") is the forward seam when a
+  vertical needs it — no engine rewrite, just a due-date field the offset arithmetic reads instead.
+- **Reminders are packet-level (`requirement_id` NULL)** _(Slice 4)_. The reference Pack authors a
+  single per-*packet* cadence (its `reminders.yaml` names no requirement), and the schema already
+  models `requirement_id NULL = a packet-level reminder`. So the engine sends one reminder per due
+  cadence step per subject while the packet has any outstanding gating requirement — not one per
+  requirement. A Pack that later declares per-requirement offsets is a Pack change the generic engine
+  reads without code change.
+- **Recipient resolution = a single Instance mailbox until auth** _(Slice 4)_. With no user directory,
+  Pack roles can't resolve to accounts; every reminder delivers to one configured mailbox
+  (`REMINDER_TO`), while the **Pack role is still recorded** on the `reminders` + audit rows — so
+  role→account routing becomes real with zero engine change once the `get_current_user()`/auth seam
+  lands (resolves Open Q "escalation recipients" for the wedge; the real-account form stays deferred).
+- **Idempotency = one live reminder per `(subject, kind)`** _(Slice 4)_. A cadence re-run (or two Pack
+  steps mapping to the same Core `kind`) sends once — the engine skips a step whose `kind` already has
+  a live `reminders` row for the subject (resolves Open Q "reminder idempotency" at the app layer; a
+  DB partial-unique index is the harder backstop seam). Consequence: distinct Pack actions collapsed to
+  one `kind` (e.g. `second_notice` + `due` → `second`) send once, whichever comes due first.
+- **Send-before-persist** _(Slice 4)_. The email is sent *before* the `reminders`/audit rows are
+  written, so a failed send leaves **no** `reminders` row (AC #5 / edge case) — the cadence retries it
+  next tick. A failure after a successful send (rare) is accepted: the reminder went out; the log lags.
 
 ## Affected Repos / Surfaces
 - **ai-mcp-server-v1** (primary engine): the generic intake/tracking/reminder **services + MCP
@@ -216,8 +274,9 @@ Uses the five wedge tables as built — **no new tables**. Two additive refineme
 - **`submissions.status`** vocabulary: `received / accepted / rejected` — add as a `CHECK` once
   confirmed (additive; default `received`). Disposition only; the authoritative requirement state is
   `requirement_status.status`.
-- **`reminders.channel`** vocabulary: `email / sms / in_app` — add as a `CHECK` (additive). The wedge
-  ships **email** first.
+- **`reminders.channel`** vocabulary: `email / sms / in_app` — added as a `CHECK` (additive, Slice 4).
+  The wedge ships **email** first; `sms`/`in_app` are seamed. Verified in smoke (a bad channel is
+  rejected).
 - **`subjects.external_ref`** (Mode A correlation): an additive `TEXT`/`jsonb` pointer to the client
   SoR record, added when the source/sink connector lands (see Record Authority above). Not needed for
   the trigger-form demo; required before a real SoR integration.
@@ -254,49 +313,65 @@ Reviewed against [docs/security-checklist.md](../security-checklist.md). Each it
 ticked (with how), or `N/A — <why>`, or `deferred — <seam>`.
 
 ### OWASP Top 10 (2021)
-- [ ] **A01 Broken Access Control** — All reads filter `user_id` + `deleted_at IS NULL`; all writes
-  stamp `user_id` from the single `get_current_user()` seam. Single-tenant today; the filter ships.
-- [ ] **A02 Cryptographic Failures** — No secrets in B code; mailbox/SMTP creds + storage paths are
-  Instance `.env`, never logged.
-- [ ] **A03 Injection** — Parameterized writes throughout; `requirement_id`/`to_status` validated
-  against the Pack + the fixed lifecycle before any DML; `profile` bound as `jsonb`.
-- [ ] **A04 Insecure Design** — Writes go through Core primitives (not n8n→DB directly), so the
-  audit + no-hard-delete invariants can't be bypassed by the orchestrator (boundary rule).
-- [ ] **A05 Security Misconfiguration** — Unknown `requirement_id` / bad status fail fast (`422` +
-  DB CHECK); the reminder runner endpoint is internal-only (not publicly routable).
-- [ ] **A06 Vulnerable & Outdated Components** — Any new email/SMTP client is pinned + reviewed;
-  flag in this spec when added.
-- [ ] **A07 Identification & Authentication Failures** — `deferred — get_current_user() seam`. The
-  *who* on status transitions is the default local user until real auth; audit attribution is
-  audit-grade only once auth lands (inherited from boundary A07).
-- [ ] **A08 Software & Data Integrity Failures** — Writes ride Core's enforced tools; `audit_log` is
-  append-only (privilege-enforced, schema spec). An orchestrator runner cannot reach around them.
-- [ ] **A09 Security Logging & Monitoring Failures** — Every mutation appends an attributed
-  `audit_log` row (who/why/when/what); never log file contents or creds in `detail`/`reason`.
-- [ ] **A10 SSRF** — `deferred — email/SoR sink review`. Outbound is reminder **email** (SMTP to a
-  configured server, not arbitrary URL fetch); an email-intake fetch or a Mode-A SoR sink that
-  egresses must be allowlisted + reject internal/metadata targets when built.
+- [x] **A01 Broken Access Control** — All reads filter `deleted_at IS NULL`; all writes stamp
+  `user_id` from the single `get_current_user()`/`X-User-ID` seam (reminders included). Compliance
+  tools **reject an identity-less call** (`_require_identity` → error) rather than writing under a
+  silent default. Single-tenant today; the ownership filter ships.
+- [x] **A02 Cryptographic Failures** — No secrets in B code; SMTP creds (`SMTP_USERNAME`/`_PASSWORD`)
+  + mailbox are Instance `.env`. `notifications.send_email` logs the recipient + subject only —
+  **never** the body or any credential.
+- [x] **A03 Injection** — Parameterized writes throughout (reminder inserts bind `$1..$n`);
+  `requirement_id`/`to_status` validated against the Pack + fixed lifecycle before any DML; `profile`
+  bound as `jsonb`; email subject/body are internally composed from Pack labels (no untrusted
+  header/CRLF injection surface — recipient is a fixed Instance setting, not user input).
+- [x] **A04 Insecure Design** — Writes (reminders too) go through Core primitives, not n8n→DB
+  directly, so the audit + no-hard-delete invariants can't be bypassed by the orchestrator (n8n
+  workflow C calls the MCP tool; the boundary rule holds).
+- [x] **A05 Security Misconfiguration** — Unknown `requirement_id` / bad status fail fast (`422` +
+  DB CHECK, incl. the new `reminders.channel` CHECK); the reminder tool requires the MCP API key +
+  identity and is not a public webhook. An unset `SMTP_HOST` degrades safely (channel off), not open.
+- [x] **A06 Vulnerable & Outdated Components** — **No new dependency**: email uses the Python
+  **stdlib** `smtplib`/`email` (run off-loop via `asyncio.to_thread`); MailHog is a dev-only,
+  demo-scoped catcher (not a production relay). Nothing new to pin.
+- [x] **A07 Identification & Authentication Failures** — `deferred — get_current_user() seam`. The
+  *who* is the default local user until real auth; the reminder actor is `actor_kind='system'` with
+  the authorizing user recorded. Role→account resolution is likewise deferred (single mailbox now);
+  audit attribution is audit-grade only once auth lands (inherited from boundary A07).
+- [x] **A08 Software & Data Integrity Failures** — Reminder writes ride Core's enforced tools;
+  `audit_log` is append-only (privilege-enforced — re-verified in smoke: `rag_user DELETE` denied
+  across slices). An orchestrator runner cannot reach around them.
+- [x] **A09 Security Logging & Monitoring Failures** — Every mutation appends an attributed
+  `audit_log` row (who/why/when/what); `reminder_sent` carries `cadence:<offset>` + action/kind/
+  recipient in `detail`. Never logs file contents, message bodies, or creds in `detail`/`reason`.
+- [x] **A10 SSRF** — Outbound is reminder **email** to a **configured SMTP host** (`SMTP_HOST`, an
+  operator setting — not a URL derived from user/document input), so there is no attacker-controlled
+  fetch target here. `deferred — email/SoR sink review`: a future email-*intake* fetch or a Mode-A SoR
+  sink that egresses must be allowlisted + reject internal/metadata targets when built.
 
 ### AI / LLM-Specific (OWASP LLM Top 10, 2025)
-- [ ] **LLM01 Prompt Injection** — `N/A — no LLM in B's path`. The wedge sets status by hand; no
-  document content reaches a model here (that's the deferred OCR phase + Workflow A).
-- [ ] **LLM02 Sensitive Information Disclosure** — `deferred — user_id scoping (above)`. No
-  cross-subject read; submissions/audit are subject-scoped.
-- [ ] **LLM03 Supply Chain** — `N/A — no model/tool added here` beyond Pack `tools/` (governed by
-  the boundary's reviewed-catalog rule).
-- [ ] **LLM04 Data & Model Poisoning** — `N/A — no ingest/embedding in B`. Uploaded files are stored
+- [x] **LLM01 Prompt Injection** — `N/A — no LLM in B's path`. The wedge sets status by hand and the
+  reminder engine composes emails from Pack labels; no document content reaches a model here (that's
+  the deferred OCR phase + Workflow A).
+- [x] **LLM02 Sensitive Information Disclosure** — `deferred — user_id scoping (above)`. No
+  cross-subject read; the reminder pass reads only the target subject(s) and its own requirement rows;
+  submissions/audit are subject-scoped.
+- [x] **LLM03 Supply Chain** — `N/A — no model/tool added here` beyond Pack `tools/` (governed by the
+  boundary's reviewed-catalog rule). Slice 4 adds only stdlib email + a dev MailHog image.
+- [x] **LLM04 Data & Model Poisoning** — `N/A — no ingest/embedding in B`. Uploaded files are stored
   as references, not embedded (OCR/ingest is deferred).
-- [ ] **LLM05 Improper Output Handling** — `deferred — FE slice`. The intake UI renders Pack labels +
-  user-entered profile/filenames; escape them (no `v-html`) in the client.
-- [ ] **LLM06 Excessive Agency** — A future AI agent that records submissions/advances status would
-  act through B's tools; **this spec forces every such write to leave an attributed audit row**
-  (`actor_kind='ai'` + authorizing user + trigger), bounding the agency. No autonomous status change
-  in the wedge.
-- [ ] **LLM07 System Prompt Leakage** — `N/A — B changes no prompt`.
-- [ ] **LLM08 Vector & Embedding Weaknesses** — `N/A — no vectors in B`.
-- [ ] **LLM09 Misinformation** — `N/A — no generated answers in B`.
-- [ ] **LLM10 Unbounded Consumption** — The reminder runner is bounded (one pass per cadence tick,
-  one row per due item); no model loop.
+- [x] **LLM05 Improper Output Handling** — Slice 4 has **no FE surface** (background cadence); email
+  bodies are plaintext (`msg.set_content`, not HTML). The intake/status **FE** (Slices 1/3) renders
+  Pack labels + user-entered profile/filenames with Vue text interpolation (no `v-html`).
+- [x] **LLM06 Excessive Agency** — The reminder runner acts autonomously *on a schedule* but its
+  agency is bounded: it only **sends notifications + logs** (no status mutation), each send leaves an
+  attributed `reminder_sent` audit row (`actor_kind='system'` + authorizing user + `cadence:<offset>`
+  trigger), and it is idempotent. A future AI agent recording submissions/advancing status would ride
+  the same audited tools. No autonomous *status* change in the wedge.
+- [x] **LLM07 System Prompt Leakage** — `N/A — B changes no prompt`.
+- [x] **LLM08 Vector & Embedding Weaknesses** — `N/A — no vectors in B`.
+- [x] **LLM09 Misinformation** — `N/A — no generated answers in B`.
+- [x] **LLM10 Unbounded Consumption** — The reminder runner is bounded: one pass per cadence tick, at
+  most one send per `(subject, kind)` (idempotency), one `reminders`/audit row per send; no model loop.
 
 ## Out of Scope for This Feature
 - OCR / field extraction / scan-quality / auto-status (deferred Workflow D).
@@ -368,7 +443,27 @@ ticked (with how), or `N/A — <why>`, or `deferred — <seam>`.
   lifecycle dropdown + required-reason input, "Set status" disabled until a reason is typed) and a
   packet-status pill reflecting the rollup; verified via the store's Vitest unit tests (15) + a green
   `vite build` + the real endpoints above — a browser DOM click-through was not automated (no headless
-  browser available). _Step 4 (reminder) pending._
+  browser available).
+  **Step 4 (reminder engine) — Slice 4, PASS 2026-07-01** (rebuilt the MCP image to bake the new
+  code; started the bundled **MailHog** catcher; recreated the MCP server with the new SMTP env —
+  `SMTP_HOST=mailhog`, `REMINDER_TO=compliance-inbox@localhost`, `PACK_ID=ca-homecare-onboarding`).
+  `GET /tools` now lists `compliance_run_reminders`. Created a fresh Caregiver subject (43-item
+  checklist, `not_sent`) and called `compliance_run_reminders` scoped to it: **2 reminders sent** —
+  `friendly` (offset −7) + `second` (from `second_notice`, −2); the `due` step (0, also → `second`)
+  was **idempotently skipped** and `escalation` (+7) was **not due** (intake clock). DB verification:
+  **2 `reminders` rows** (`kind` friendly/second, `recipient_role=Caregiver`, `channel=email`,
+  `requirement_id` NULL = packet-level, `user_id` stamped) + **2 attributed `reminder_sent` audit
+  rows** (`actor_kind=system`, `reason=cadence:−7`/`cadence:−2`, `detail` carrying action/kind/offset/
+  recipient). **MailHog captured both emails** with **Pack-supplied** labels
+  (`[CA Home-Care Caregiver Onboarding] … reminder`, role `Caregiver`) → `compliance-inbox@localhost`
+  — no B code change. Idempotency: a **re-run sent nothing** (`sent: []`). Negatives: **channel down**
+  (stopped MailHog, fresh subject) → run returned **3 errors, `sent: []`, 0 `reminders` rows**, the
+  pass **survived** (no crash, no false row); the additive **`reminders.channel` CHECK rejects** a bad
+  channel (`carrier_pigeon` → `check_violation`). Bad `subject_id` → `SubjectNotFoundError`/404.
+  n8n **workflow C** (`Schedule → /tools/compliance_run_reminders`) ships inactive; the manual `curl`
+  trigger it documents is exactly the call exercised above. _(The `reminders.channel` CHECK is applied
+  by `init.sql` on a fresh boot — as with Slice 2's `submissions.status` CHECK; here it was applied to
+  the live DB to verify the DDL, matching what a clean rebuild would enforce.)_
 
 > **Fresh-boot fix (shipped with Slice 1, ai-mcp-server-v1):** the clean rebuild surfaced a latent
 > first-run bug — the MCP server's corpus-provenance self-check (`config_check.py`) queried
@@ -379,13 +474,19 @@ ticked (with how), or `N/A — <why>`, or `deferred — <seam>`.
 
 ## Open Questions
 - [ ] **Email intake mechanics** — how received-by-email documents reach B (a polled mailbox via n8n
-      vs. a forwarding address parsed by a Core tool); ties to A10/SSRF review.
-- [ ] **Escalation recipients** — when `escalation` fires, is the target a Pack role resolved to a
-      real account (needs the auth seam) or a static Instance address until auth lands?
-- [ ] **Reminder idempotency** — keying so a cadence re-run doesn't double-send (e.g. unique
-      `(subject_id, requirement_id, kind, offset)` per cycle).
+      vs. a forwarding address parsed by a Core tool); ties to A10/SSRF review. _Still open — B's
+      Slice 4 is reminder **egress** (SMTP send), not intake; the inbound-email path is unbuilt._
+- [x] **Escalation recipients** — _(Slice 4, wedge answer.)_ Resolved for the wedge: **a single
+      Instance mailbox** (`REMINDER_TO`) receives every reminder, with the Pack role (incl.
+      `escalation_target`) recorded on the `reminders`/audit rows. The **real-account** form (role →
+      resolved address) stays **deferred behind the `get_current_user()`/auth seam** — routing goes
+      live with no engine change once auth lands.
+- [x] **Reminder idempotency** — _(Slice 4.)_ Resolved at the app layer: the engine skips a cadence
+      step whose Core `kind` already has a live `reminders` row for the subject (one send per
+      `(subject, kind)`). A DB partial-unique index is the harder backstop (noted seam), not needed for
+      the wedge's single-run cadence.
 - [ ] **Status regression policy** — exact rules for when an `approved` item may move back (operator
-      override only, with reason — confirm).
+      override only, with reason — confirm). _Unchanged by Slice 4 (reminders don't mutate status)._
 - [ ] **Record-authority posture (Mode A vs B)** for the inspection-ready permanent file — who holds
       the authoritative packet (theirs vs us). Pairs with the boundary's open "default posture per
       vertical" question; decide before a real deployment (the demo runs Mode A with stand-ins).
