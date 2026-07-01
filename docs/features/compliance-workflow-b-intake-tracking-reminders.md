@@ -3,14 +3,24 @@
 ## Status
 [x] Spec  [x] In Progress  [ ] Testing  [ ] Done
 
-_Last updated: 2026-06-30 — **In Progress, Slice 1 (create-subject) backend built.** This feature
-is being shipped in vertical slices (see [Slice Plan](#slice-plan)). **Slice 1 = AC #1/#6/#7**
-(create a subject under the active Pack → materialize one `requirement_status` per declared
-requirement → `subject_created` audit row, atomically): shipped as the Core MCP tool
-`compliance_create_subject` (ai-mcp-server-v1 `tools/compliance.py`) + the `POST /api/subjects` BE
-route that proxies it (ai-rag-llm-client-v1). Unit + route tests green (mcp-server 145, rag-client
-190); **live smoke + FE pending** (BE-before-FE gate — no intake UI this slice). Slices 2–4
-(submissions, transitions, reminders) not yet built._
+_Last updated: 2026-06-30 — **In Progress; Slices 1–3 shipped (BE+FE), live smoke green.** This
+feature is being shipped in vertical slices (see [Slice Plan](#slice-plan)). **Slice 3 = AC #4/#6**
+(human status transitions + computed subject-status rollup): Core tool
+`compliance_transition_requirement` (ai-mcp-server-v1) moves a requirement along the fixed Core
+lifecycle **with a required reason**, stamping `completed_at` on terminal states and writing an
+attributed `status_changed` audit row; every requirement change (transition **and** submission,
+retrofitted; and subject creation) now recomputes `subjects.status` as the **weakest-link rollup over
+the Pack's completion gates** (see [Resolved Decisions](#resolved-decisions)), writing a
+`subject_status_rollup` audit row when it moves. BE: `PATCH /api/subjects/{id}/requirements/{rid}`
+proxy; `GET /pack` now also exposes the Core `lifecycle` + Pack `status_labels` + `completion_gates`.
+FE: an inline per-row status control (Pack-labelled dropdown + required reason) on the intake
+checklist + a packet-status pill. Tests green (mcp-server 170, rag-client 213 unit, frontend 30
+Vitest); **live smoke PASS 2026-06-30** (see Smoke Test). Slice 4 (reminders) not yet built._
+
+_2026-06-30 — Slices 1–2 shipped (BE+FE), live smoke green. Slice 1 (create-subject) = AC #1/#6/#7
+via `compliance_create_subject` + `POST /api/subjects` + a generic Pack-driven intake UI. Slice 2
+(record-submission) = AC #2/#3 via `compliance_record_submission` + `POST /api/subjects/{id}/submissions`
++ inline "Record" control; added the additive `submissions.status` CHECK._
 
 _2026-06-29 — initial authored draft. The **write-side** wedge workflow: create a
 subject, record received documents, advance requirement status, and drive reminders. Consumes the
@@ -33,7 +43,14 @@ B is delivered in dependency order; each slice is its own BE-before-FE build + P
    requirement from a pre-receipt state to `in_progress` (never regresses a later state), sets
    `expires_at = received + Pack validity_days` for expirable items, and writes
    `submission_received` (+ `status_changed` when it moves) audit rows.
-3. **[ ] Human status transitions + computed subject-status rollup** (AC #4, #6).
+3. **[DONE — BE+FE merged, live smoke green] Human status transitions + computed subject-status
+   rollup** (AC #4, #6) — Core tool `compliance_transition_requirement` (fixed-lifecycle move with a
+   required reason, `completed_at` on terminal states, attributed `status_changed` audit) +
+   `PATCH /api/subjects/{id}/requirements/{rid}`; inline Pack-labelled status control + packet-status
+   pill on the checklist. `subjects.status` is now a **weakest-link rollup over the Pack completion
+   gates** ([Resolved Decisions](#resolved-decisions)), recomputed on every requirement change
+   (transition + submission-retrofit + at creation), writing a `subject_status_rollup` audit row when
+   it moves. `GET /pack` also exposes `lifecycle`/`status_labels`/`completion_gates`. No DB change.
 4. **[ ] Reminder engine + n8n cadence** (AC #5) — adds the additive `reminders.channel` CHECK.
 
 ## Problem Statement
@@ -57,21 +74,43 @@ reminder cadence — so a new vertical needs no B code change, only a new Pack.
 - [ ] **Unknown `requirement_id` is rejected.** A submission or status write naming a
       `requirement_id` not declared by the active Pack fails fast with a clear error and writes
       nothing — no drift between Pack config and stored data.
-- [ ] **Human status transitions.** An operator can move a requirement along the fixed Core
-      lifecycle (e.g. `returned`, `needs_correction`, `approved`) with a **reason**; each transition
-      writes an attributed audit row (who / why / when / what). The wedge sets status by hand — no
-      OCR/auto-extraction.
+- [x] **Human status transitions.** _(Slice 3.)_ An operator can move a requirement along the fixed
+      Core lifecycle (e.g. `returned`, `needs_correction`, `approved`) with a **reason**; each
+      transition writes an attributed audit row (who / why / when / what). The wedge sets status by
+      hand — no OCR/auto-extraction. Shipped as `compliance_transition_requirement` /
+      `PATCH /api/subjects/{id}/requirements/{rid}`: reason is required (`422` if blank), `to_status`
+      is validated against `CORE_LIFECYCLE` (`422` on an unknown state), terminal states stamp
+      `completed_at` (cleared when a requirement is bounced back).
 - [ ] **Reminder engine.** For requirements that are due/overdue per the Pack's reminder cadence,
       the system emits a reminder (`friendly` / `second` / `escalation`) to the Pack-declared
       recipient role, logs one `reminders` row per reminder sent, and writes a `reminder_sent` audit
       row. Reminders never hard-fail the workflow if a channel is down (logged, retried per cadence).
-- [ ] **Subject status is a computed rollup** (resolves schema Open Q #1): `subjects.status` is
-      derived from its `requirement_status` rows (not independently editable), so C never disagrees
-      with the underlying checklist. _(See Resolved Decisions.)_
+- [x] **Subject status is a computed rollup** _(Slice 3; resolves schema Open Q #1)_:
+      `subjects.status` is derived from its `requirement_status` rows (not independently editable), so
+      C never disagrees with the underlying checklist. Implemented as the **weakest-link rollup over
+      the Pack completion gates** (see [Resolved Decisions](#resolved-decisions)) and recomputed on
+      every requirement change — at subject creation, on submission receipt (retrofit into Slice 2's
+      tool), and on a human transition — writing a `subject_status_rollup` audit row when it moves. No
+      route sets `subjects.status` directly.
 - [ ] **Generic / no vertical vocabulary.** B reads requirement ids, labels, cadence, and roles from
       the active Pack; no requirement name, role, or vertical word is hard-coded in B.
 - [ ] **Ownership + audit on every write.** Every write stamps `user_id` from `get_current_user()`;
       every state change appends an `audit_log` row; nothing is hard-deleted.
+
+## Resolved Decisions
+- **Subject-status rollup rule (AC #6) = weakest link over the completion gates** _(Slice 3)_. The
+  Core lifecycle is an ordered progression (`not_sent < sent < opened < in_progress < returned <
+  incomplete < needs_correction < approved < filed`). `subjects.status` is the **least-advanced
+  status among the subject's *gating* requirements**: the Pack's `workflow.completion_gates` when
+  declared, else every `required` requirement, else all requirements. Rationale: a packet is "ready"
+  only when its furthest-behind *blocker* is — non-gating items (acknowledgements, training modules)
+  track to completion but don't hold the packet's headline status back, and an attention state on a
+  gate (`needs_correction`) correctly out-ranks a plain `in_progress` so the packet surfaces the
+  problem. Consequences: a fresh subject reads `not_sent` (all gates unsent), not the DB default
+  `in_progress`; the subject reaches `approved`/`filed` only once **every** gate does. The rollup is
+  computed by Core on every requirement-status change and is never settable directly by a route
+  (chosen over "gates-approved ⇒ approved" two-state and "weakest over *all* requirements"
+  alternatives, which either hid intermediate states or let non-gating items block the headline).
 
 ## Affected Repos / Surfaces
 - **ai-mcp-server-v1** (primary engine): the generic intake/tracking/reminder **services + MCP
@@ -309,8 +348,27 @@ ticked (with how), or `N/A — <why>`, or `deferred — <seam>`.
   advanced `not_sent → in_progress`, `expires_at = 2027-06-30`, submission `received`, audit rows
   `submission_received` + `status_changed`; a non-expirable item (`i9`) → `in_progress`/no expiry;
   duplicate submission allowed (count → 2). Negatives: unknown requirement → `422`, bad source →
-  `422`, missing subject → `404`, all writing nothing. _Steps 3–4 (transition/reminder) pending._ A
-  fresh-boot fix was needed en route — see note below. _<remaining steps fill as slices 3–4 ship>_
+  `422`, missing subject → `404`, all writing nothing. A fresh-boot fix was needed en route — see
+  note below.
+  **Step 3 (human status transitions + rollup) — Slice 3, PASS 2026-06-30** (rebuilt MCP + rag-client
+  images; no schema change): through the real rag-client API (`:8000`, `PACK_ID=ca-homecare-onboarding`).
+  `GET /api/pack` now returns the Core `lifecycle` (9 states), Pack `status_labels`, and the 8
+  `completion_gates`. A freshly created subject rolled up to **`not_sent`** (all gates unsent — not the
+  DB default). `PATCH .../requirements/tb_test → approved` (reason "TB clearance verified by RN"):
+  requirement `approved`, subject **stayed `not_sent`** (7 gates still unsent — weakest link).
+  Approving the remaining 7 gates one-by-one left the subject `not_sent` until the **last** gate → then
+  **`approved`**. Bouncing `i9 → needs_correction` dragged the subject rollup to **`needs_correction`**
+  (attention state out-ranks approved). DB verification: **9 `status_changed` (human)** + **1
+  `subject_created`** + **2 `subject_status_rollup` (system)** audit rows; `subjects.status =
+  needs_correction`; `completed_at` **set** on the `approved` gates and **cleared** on the bounced
+  `i9`; rollup audit `detail` carried `{from,to,trigger,requirement_id}`. Negatives: bad `to_status`
+  → `422`, empty reason → `422`, unknown requirement → `422`, missing subject → `404`, all writing
+  nothing; `rag_user DELETE FROM audit_log` → **permission denied** (append-only holds). **Transition
+  FE (added 2026-06-30):** the intake checklist gained an inline per-row status control (Pack-labelled
+  lifecycle dropdown + required-reason input, "Set status" disabled until a reason is typed) and a
+  packet-status pill reflecting the rollup; verified via the store's Vitest unit tests (15) + a green
+  `vite build` + the real endpoints above — a browser DOM click-through was not automated (no headless
+  browser available). _Step 4 (reminder) pending._
 
 > **Fresh-boot fix (shipped with Slice 1, ai-mcp-server-v1):** the clean rebuild surfaced a latent
 > first-run bug — the MCP server's corpus-provenance self-check (`config_check.py`) queried
