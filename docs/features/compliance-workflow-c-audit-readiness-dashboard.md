@@ -3,11 +3,12 @@
 ## Status
 [x] Spec  [x] In Progress  [ ] Testing  [ ] Done
 
-_Last updated: 2026-07-01 — **Slice 1 (backend) shipped.** The two read endpoints
-(`GET /api/subjects/{id}/readiness`, `GET /api/readiness/roster`) + the Pack expiring-window
-config are built, unit-tested, and live-smoke-verified against the running stack. The **Vue
-dashboard is Slice 2** (BE-before-FE gate) and the **inspector print packet + design-token polish
-is Slice 3** — so the whole spec is **In Progress**, not Done, until the dashboard renders. The
+_Last updated: 2026-07-01 — **Slices 1 (backend) + 2 (Vue dashboard) built.** The two read endpoints
+(`GET /api/subjects/{id}/readiness`, `GET /api/readiness/roster`) + the Pack expiring-window config
+shipped in Slice 1; the roster + per-subject readiness panel + audit-trail timeline (Vue) are built in
+Slice 2 (8 Vitest green, build clean, HTTP wiring verified through the dev proxy — user visual smoke
+pending). The **inspector print packet + design-token polish is Slice 3** — so the whole spec stays
+**In Progress**, not Done, until Slice 3 lands and the user runs the visual smoke. The
 **read-side** wedge workflow: a pure-query dashboard that answers "is this subject (and the whole
 roster) audit-ready, and can we defend it?" Reads the schema from
 [compliance-schema-mvp-wedge.md](compliance-schema-mvp-wedge.md) written by
@@ -21,8 +22,19 @@ governed by [compliance-platform-core-pack-boundary.md](compliance-platform-core
   override + tests), ai-projects #26 (this spec). No DB change — `rag_user` already had SELECT on the
   wedge tables; reads go direct from the rag-client pool (writes still route through Core/MCP). Live
   smoke PASS.
-- **Slice 2 — Vue dashboard (NEXT).** Per-subject panel, roster table, trail timeline; escaped Pack
-  labels; empty/expiring states; Vitest.
+- **Slice 2 — Vue dashboard (DONE 2026-07-01).** ai-rag-llm-client-v1 #25 (FE-only, branch stacked on
+  the Slice-1 branch / PR #24). New `stores/readiness.js` (calls the two read endpoints — labels come baked in the
+  responses, no separate `/pack` fetch), `views/ReadinessView.vue` (roster table + caseload summary
+  chips, row → subject), `views/SubjectReadinessView.vue` (subject header + rollup/ready/archived
+  badges + summary chips + Pack-category-grouped requirement list w/ expiring/expired badges + trail),
+  `components/AuditTrail.vue` (chronological who/why/when/what timeline), `components/StatusBadge.vue`
+  (Pack-labelled status pill coloured by Core status), router `/readiness` + `/readiness/:id`, nav
+  link. **All Pack/user text interpolated — no `v-html` (LLM05).** 8 Vitest store tests green; `vite
+  build` clean; the exact HTTP paths the store calls were verified end-to-end through the Vite `/api`
+  proxy against the running backend (roster + a soft-deleted subject's panel/trail). **User visual
+  smoke on the running dev server pending.**
+- **Slice 3 — inspector print packet + design-token polish (NEXT).** Print CSS + Print button (no PDF
+  engine); status-badge polish shared with the A/B intake UIs.
 - **Slice 3 — inspector print packet + design-token polish.** Print CSS + Print button (no PDF engine);
   status-badge polish shared with the A/B intake UIs.
 
@@ -184,10 +196,10 @@ _Slice 1 (backend) status noted per item; the one FE-specific item (LLM05) is ca
   scoping + id-resolution; C surfaces only the current user's caseload (smoke: other-user subject → 404).
 - [x] **LLM03 Supply Chain** — `N/A — no model/tool added` (the shared read-only MCP tool is deferred).
 - [x] **LLM04 Data & Model Poisoning** — `N/A — no ingest/embedding`.
-- [ ] **LLM05 Improper Output Handling** — `deferred — Slice 2 (FE)`. The BE returns raw Pack labels +
-  audit `reason`/actor + profile fields as data; the dashboard **must** render them escaped (no
-  `v-html`) so a malicious filename/reason can't inject script. Primary FE security item — ticked when
-  the dashboard ships.
+- [x] **LLM05 Improper Output Handling** — _(Slice 2)_ The dashboard renders every Pack label + audit
+  `reason`/`actor`/`event_type` + profile field via Vue interpolation (auto-escaped) — **no `v-html`
+  anywhere** in `ReadinessView`/`SubjectReadinessView`/`AuditTrail`/`StatusBadge` — so a malicious
+  filename/reason cannot inject script.
 - [x] **LLM06 Excessive Agency** — `N/A — C takes no action` (read-only; no mutate/egress tool).
 - [x] **LLM07 System Prompt Leakage** — `N/A — C changes no prompt`.
 - [x] **LLM08 Vector & Embedding Weaknesses** — `N/A — no vectors`.
