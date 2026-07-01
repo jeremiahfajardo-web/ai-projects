@@ -15,11 +15,12 @@ roster) audit-ready, and can we defend it?" Reads the schema from
 governed by [compliance-platform-core-pack-boundary.md](compliance-platform-core-pack-boundary.md)._
 
 ### Slice log
-- **Slice 1 — backend (DONE 2026-07-01).** ai-mcp-server-v1 #TBD (Pack `workflow.expiring_window_days`
-  in the loader schema + `GET /pack` introspection), ai-infrastructure-v1 #TBD (`expiring_window_days: 30`
-  on the ca-homecare Pack), ai-rag-llm-client-v1 #TBD (both read endpoints + service + schemas + config
-  override + tests). No DB change — `rag_user` already had SELECT on the wedge tables; reads go direct
-  from the rag-client pool (writes still route through Core/MCP). Live smoke PASS.
+- **Slice 1 — backend (DONE 2026-07-01).** ai-mcp-server-v1 #22 (Pack `workflow.expiring_window_days`
+  in the loader schema + `GET /pack` introspection), ai-infrastructure-v1 #13 (`expiring_window_days: 30`
+  on the ca-homecare Pack), ai-rag-llm-client-v1 #24 (both read endpoints + service + schemas + config
+  override + tests), ai-projects #26 (this spec). No DB change — `rag_user` already had SELECT on the
+  wedge tables; reads go direct from the rag-client pool (writes still route through Core/MCP). Live
+  smoke PASS.
 - **Slice 2 — Vue dashboard (NEXT).** Per-subject panel, roster table, trail timeline; escaped Pack
   labels; empty/expiring states; Vitest.
 - **Slice 3 — inspector print packet + design-token polish.** Print CSS + Print button (no PDF engine);
